@@ -1142,11 +1142,19 @@ async function opsaetPynt(guild, tving = false) {
     }
     config.pynt.lyde = true;
   }
-  if (guild.premiumTier >= 2 && !config.pynt.ikoner) {
-    const ikoner = { ejer: '👑', admin: '🛡️', moderator: '🔨', mod: '🔨', helper: '💚', staff: '⭐', builder: '🏗️', streamer: '🎥' };
-    for (const r of guild.roles.cache.values()) { const e = ikoner[r.name.toLowerCase()]; if (e && !r.icon && !r.unicodeEmoji) await r.setUnicodeEmoji(e).catch(() => {}); }
-    config.pynt.ikoner = true; console.log('Pynt: rolleikoner er sat.');
-  } else if (guild.premiumTier < 2 && !config.pynt.ikoner) console.log('Pynt: rolleikoner springes over (kræver boost-niveau 2) – de sættes automatisk, når serveren når det.');
+  // Rolleikoner: egne pixel-ikoner (assets/roller/*.png). Discord kræver boost-niveau 2.
+  const IKON_V = 2;
+  if (guild.premiumTier >= 2 && config.pynt.ikonerV !== IKON_V) {
+    const filer = { ejer: 'ejer', admin: 'admin', mod: 'mod', 'hjælper': 'hjaelper', builder: 'builder', event: 'event', partner: 'partner', streamer: 'streamer', legende: 'legende', mester: 'mester', diamant: 'diamant', guld: 'guld', 'sølv': 'soelv', bronze: 'bronze', spiller: 'spiller' };
+    await guild.roles.fetch();
+    let sat = 0;
+    for (const r of guild.roles.cache.values()) {
+      const f = filer[r.name.toLowerCase()]; const sti = f && `assets/roller/${f}.png`;
+      if (sti && fs.existsSync(sti)) await r.setIcon(sti, 'HopDop rolleikon').then(() => sat++).catch(e => rap.fejl.push(`rolleikon ${r.name}: ${e.message}`));
+    }
+    if (!rap.fejl.some(x => x.startsWith('rolleikon'))) config.pynt.ikonerV = IKON_V;
+    console.log(`Pynt: ${sat} rolleikoner er sat.`);
+  } else if (guild.premiumTier < 2 && config.pynt.ikonerV !== IKON_V) console.log('Pynt: rolleikoner springes over (kræver boost-niveau 2) – de sættes automatisk, når serveren når det.');
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
   return rap;
 }
