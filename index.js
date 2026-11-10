@@ -817,24 +817,53 @@ async function liveChatKanal(guild) {
   }
   return k;
 }
+// #join-leave: samme adgang som #live-chat, men kun joins/leaves - så de ikke fylder i den almindelige chat
+async function joinLeaveKanal(guild) {
+  let k = config.kanaler.joinleave && await guild.channels.fetch(config.kanaler.joinleave).catch(() => null);
+  if (!k) {
+    const lc = await liveChatKanal(guild);
+    k = await guild.channels.create({ name: '🚪┃join-leave', type: ChannelType.GuildText, parent: lc.parentId || undefined,
+      topic: 'Hvem joiner og forlader serveren ingame, med spilletid. 🚩 markerer mistænkelig join/leave-spam. Kun staff.', permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }] });
+    config.kanaler.joinleave = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#join-leave er oprettet.');
+  }
+  return k;
+}
 // Kun rollerne i adgang.livechat (og Ejer) kan se #live-chat
 async function opdaterLiveChatAdgang(guild) {
   const k = await liveChatKanal(guild);
+  const jl = await joinLeaveKanal(guild);
   const roller = new Set(['Ejer', ...(adgang.livechat || [])]);
   const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages] }];
   for (const navn of roller) { const r = guild.roles.cache.find(x => x.name === navn); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
   await k.permissionOverwrites.set(ow).catch(e => console.error('#live-chat adgang:', e.message));
+  await jl.permissionOverwrites.set(ow).catch(e => console.error('#join-leave adgang:', e.message));
 }
 const klok = t => new Date(t).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit' });
 const RANK_IKON = { Ejer: '👑', Admin: '🔴', Mod: '🟣', 'Hjælper': '🟢', Builder: '🔷', Legende: '💎', Mester: '💠', Diamant: '💎', Guld: '🟡', 'Sølv': '⚪', Bronze: '🟤' };
+// Join/leave-overvågning: spilletid og join/leave-spam (kan være omgåelse af straf, bot-angreb eller combat-log)
+const joinTid = new Map(), joinHist = new Map();
+function joinFlag(navn, t) {
+  const n = navn.toLowerCase(); joinTid.set(n, t);
+  const h = (joinHist.get(n) || []).filter(x => t - x < 10 * 60000); h.push(t); joinHist.set(n, h);
+  if (h.length >= 4) { botLogKanal().then(k => k.send({ embeds: [new EmbedBuilder().setColor(0xef4444).setTitle('🚩 Join/leave-spam').setDescription(`**${escapeMarkdown(navn)}** har joinet ${h.length} gange på 10 minutter. Tjek for omgåelse af straf eller combat-log.`).setTimestamp()] })).catch(() => {}); return ` 🚩 **${h.length}. join på 10 min**`; }
+  return h.length === 3 ? ' ⚠️ 3. join på 10 min' : '';
+}
+function spilletid(navn, t) {
+  const n = navn.toLowerCase(), start = joinTid.get(n); joinTid.delete(n);
+  if (!start) return '';
+  const sek = Math.max(0, Math.round((t - start) / 1000));
+  const tekst = sek < 60 ? `${sek} sek.` : sek < 3600 ? `${Math.round(sek / 60)} min.` : `${Math.floor(sek / 3600)} t. ${Math.round((sek % 3600) / 60)} min.`;
+  return ` · online i ${tekst}${sek < 20 ? ' 🚩 forlod efter få sekunder' : ''}`;
+}
 function chatLinje(c) {
   const [type, a, ...rest] = c.tekst.split('|');
   const b = rest.join('|');
   const tid = `\`${klok(c.t)}\``;
   const e = escapeMarkdown;
   if (type === 'C') return `${tid} 💬 **${e(a)}** » ${penTekst(b)}`;
-  if (type === 'J') return `${tid} 🟢 **${e(a)}** joinede serveren`;
-  if (type === 'Q') return `${tid} 🔴 **${e(a)}** forlod serveren`;
+  if (type === 'J') return `${tid} 🟢 **${e(a)}** joinede serveren${joinFlag(a, c.t)}`;
+  if (type === 'Q') return `${tid} 🔴 **${e(a)}** forlod serveren${spilletid(a, c.t)}`;
   if (type === 'D') return `${tid} 💀 ${e(a)}`;
   if (type === 'K') { // K|rank|spiller|/kommando
     const [spiller, ...k] = rest;
@@ -860,13 +889,18 @@ async function tjekBro() {
     if (d.chat.length) {
       const guild = await client.guilds.fetch(process.env.GUILD_ID);
       const k = await liveChatKanal(guild);
-      let blok = '';
-      for (const c of d.chat) {
-        const l = chatLinje(c);
-        if ((blok + l).length > 1900) { await k.send({ content: blok, allowedMentions: { parse: [] } }); blok = ''; }
-        blok += l + '\n';
-      }
-      if (blok) await k.send({ content: blok, allowedMentions: { parse: [] } });
+      const jl = await joinLeaveKanal(guild);
+      const send = async (kanal, linjer) => {
+        let blok = '';
+        for (const l of linjer) {
+          if ((blok + l).length > 1900) { await kanal.send({ content: blok, allowedMentions: { parse: [] } }); blok = ''; }
+          blok += l + '\n';
+        }
+        if (blok) await kanal.send({ content: blok, allowedMentions: { parse: [] } });
+      };
+      const jlTyper = c => ['J', 'Q'].includes(c.tekst.split('|')[0]);
+      await send(k, d.chat.filter(c => !jlTyper(c)).map(chatLinje));
+      await send(jl, d.chat.filter(jlTyper).map(chatLinje));
     }
   } catch (e) { if (!String(e.message).includes('fetch failed')) console.error('Bro:', e.message); }
 }
