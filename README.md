@@ -6,6 +6,8 @@ Discord-bot til Hopdop (Minecraft 1.8.9 HCF/KitPvP). Lavet i Node.js med discord
 - **Tickets** med knapper (Support, Køb/Ranks, Ansøgning, Anmeld spiller), luk-knap og log i #ticket-log
 - **Verificering**: nye medlemmer trykker på knappen i #regler og får rollen Spiller
 - **/forslag**: formular med ingame navn og forslag, ✅/❌-reaktioner og et sID. Staff svarer med `/godkend` og `/afvis`
+- **/stats <spiller>**: samme stats som ingame /stats (hentes fra hjemmesiden hopdop.pages.dev), med rigtigt skin
+- **#server-ip** opdateres automatisk med IP og vejledning, når botten starter
 - **/giveaway**, **/ip**, **/say** og velkomstbesked
 
 ## Opsætning
@@ -14,7 +16,7 @@ Discord-bot til Hopdop (Minecraft 1.8.9 HCF/KitPvP). Lavet i Node.js med discord
 3. Kopiér `.env.example` til `.env` og udfyld `TOKEN`, `CLIENT_ID`, `GUILD_ID` og evt. `SERVER_IP`.
 4. Kør **kun én gang**: `node setup.js`
    Det opretter roller, kategorier, kanaler, regler og ticket-panel og gemmer `config.json`.
-5. Start botten: `node index.js` (terminalen skal stå åben)
+5. Start botten: dobbeltklik på **start-bot.bat** (vinduet skal stå åbent). Botten genstarter selv, når index.js ændres.
 
 ## Filer
 | Fil | Hvad |

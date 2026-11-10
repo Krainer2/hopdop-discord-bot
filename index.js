@@ -20,11 +20,99 @@ const gemForslag = d => fs.writeFileSync(FORSLAG_FIL, JSON.stringify(d, null, 2)
 const lavSid = () => Math.random().toString(36).slice(2, 10);
 const dato = () => new Date().toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+// ---------- DATA FRA HJEMMESIDEN (samme stats som ingame, synkes hvert 5. min) ----------
+const WEB = (process.env.WEB_URL || 'https://hopdop.pages.dev').replace(/\/+$/, '');
+const webCache = {};
+async function hentWeb(sti) {
+  const c = webCache[sti];
+  if (c && Date.now() - c.t < 60000) return c.d;
+  const r = await fetch(`${WEB}/api/${sti}`);
+  if (!r.ok) throw new Error(`Hjemmesiden svarede ${r.status}`);
+  const d = await r.json();
+  webCache[sti] = { t: Date.now(), d };
+  return d;
+}
+const tal = (n, dec = 0) => Number(n || 0).toLocaleString('da-DK', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+// Bygger samme stats som ingame /stats (Stats-Duels.sk): Status, Team, Kills, Døde, K/D,
+// samlet placering (gennemsnit af plads på kills, K/D og daily), leaderboards, daily-streak og duels.
+const LILLA = 0xaa00aa; // &5 i Minecraft
+const kdTal = s => s.d ? Math.round(s.k / s.d * 100) / 100 : s.k; // som pfKD ingame
+const VAL = { kills: s => s.k, kd: kdTal, daily: s => s.ds, doede: s => s.d };
+const rank = (alle, s, fn) => alle.filter(x => fn(x) > fn(s)).length + 1; // som pfRank ingame
+
+// Spillerens rigtige skin - samme vej som hjemmesiden (/api/hoved kender skinnet fra serveren)
+const skinCache = {};
+async function skinUrl(u, navn, type = 'body') {
+  const id = u.replace(/-/g, '').toLowerCase();
+  if (id[12] === '3') return `https://mc-heads.net/${type}/${encodeURIComponent(navn)}/128`; // offline-konto: brug navnet
+  const k = type + id;
+  if (skinCache[k] && Date.now() - skinCache[k].t < 3600000) return skinCache[k].url;
+  let url = `${WEB}/api/hoved?u=${id}&s=128${type === 'body' ? '&t=body' : ''}`;
+  try {
+    const r = await fetch(url, { redirect: 'manual' });
+    const hvor = r.headers.get('location');
+    if (hvor && hvor.startsWith('http')) url = hvor;
+  } catch { /* brug hjemmesidens adresse direkte */ }
+  skinCache[k] = { url, t: Date.now() };
+  return url;
+}
+
+async function lavStatsEmbed(navn) {
+  const stats = await hentWeb('stats');
+  const alle = stats.spillere;
+  const s = alle.find(x => x.n.toLowerCase() === navn.toLowerCase());
+  if (!s) return null;
+  const duel = await hentWeb('duel').catch(() => ({ kits: [], spillere: [] }));
+  const online = (stats.online || []).some(n => n.toLowerCase() === s.n.toLowerCase());
+  const team = (stats.teams || []).find(t => t.m.some(m => m.u === s.u));
+  const nr = n => ` \`#${n}\``;
+
+  // Samlet placering præcis som pfSamlet ingame
+  const score = x => (rank(alle, x, VAL.kills) + rank(alle, x, VAL.kd) + rank(alle, x, VAL.daily)) / 3;
+  const min = score(s);
+  const samlet = alle.filter(x => x.u !== s.u && score(x) < min).length + 1;
+
+  const emb = new EmbedBuilder().setColor(LILLA)
+    .setAuthor({ name: 'HOPDOP · Spillerstats' })
+    .setTitle(s.n)
+    .setURL(`${WEB}/spiller.html?navn=${encodeURIComponent(s.n)}`)
+    .setThumbnail(await skinUrl(s.u, s.n))
+    .setDescription([
+      `${online ? '🟢 **Online**' : '🔴 Offline'}  ·  🛡️ ${team ? `Team **${team.n}**` : 'Intet team'}`,
+      `🏆 Samlet placering: **#${samlet}** af ${tal(alle.length)}`,
+    ].join('\n'))
+    .addFields(
+      { name: '⚔️ PvP', inline: true, value:
+        `**${tal(s.k)}** kills${nr(rank(alle, s, VAL.kills))}\n**${tal(s.d)}** døde\n**${String(kdTal(s)).replace('.', ',')}** K/D${nr(rank(alle, s, VAL.kd))}` },
+      { name: '📅 Daily', inline: true, value: `**${tal(s.ds)}** dage i træk${nr(rank(alle, s, VAL.daily))}` },
+    );
+
+  const ds = (duel.spillere || []).find(x => x.u === s.u);
+  if (ds) {
+    const wr = ds.s + ds.t > 0 ? Math.round(ds.s / (ds.s + ds.t) * 100) : 0;
+    emb.addFields({ name: '🥊 Duels', inline: true, value:
+      `**${tal(ds.elo)}** rating${nr(rank(duel.spillere, ds, x => x.elo))}\n**${tal(ds.s)}**W / **${tal(ds.t)}**L\n**${wr}%** win rate` });
+    const kits = (duel.kits || []).map(k => ({ n: k.n, x: ds.ks && ds.ks[k.id] })).filter(o => o.x && (o.x.s + o.x.t))
+      .sort((a, b) => (b.x.s + b.x.t) - (a.x.s + a.x.t)).slice(0, 6)
+      .map(o => `**${o.n}** ${tal(o.x.s)}W/${tal(o.x.t)}L`);
+    if (kits.length) emb.addFields({ name: '🗡️ Duel-kits', value: kits.join('  ·  ') });
+  } else {
+    emb.addFields({ name: '🥊 Duels', inline: true, value: 'Ingen dueller endnu' });
+  }
+
+  const minSiden = stats.opdateret ? Math.max(0, Math.round((Date.now() - stats.opdateret) / 60000)) : null;
+  emb.setFooter({ text: `${minSiden === null ? '' : `Opdateret for ${minSiden} min. siden · `}Klik på navnet for hele profilen` });
+  return emb;
+}
+
 const erStaff = m => m.roles.cache.some(r => STAFF.includes(r.id));
 const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'] };
 
 const kommandoer = [
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
+  new SlashCommandBuilder().setName('stats').setDescription('Se en spillers stats fra Hopdop')
+    .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setAutocomplete(true).setMaxLength(16)),
   new SlashCommandBuilder().setName('giveaway').setDescription('Start en giveaway')
     .addStringOption(o => o.setName('praemie').setDescription('Hvad kan man vinde?').setRequired(true))
     .addIntegerOption(o => o.setName('minutter').setDescription('Hvor mange minutter?').setRequired(true).setMinValue(1).setMaxValue(10080))
@@ -89,6 +177,14 @@ client.on('guildMemberAdd', async member => {
 
 client.on('interactionCreate', async i => {
   try {
+    // ---------- STATS: forslag til navne mens man skriver ----------
+    if (i.isAutocomplete() && i.commandName === 'stats') {
+      const skrevet = i.options.getFocused().toLowerCase();
+      const stats = await hentWeb('stats').catch(() => ({ spillere: [] }));
+      const navne = stats.spillere.map(s => s.n).filter(n => n.toLowerCase().startsWith(skrevet)).slice(0, 25);
+      return i.respond(navne.map(n => ({ name: n, value: n }))).catch(() => {});
+    }
+
     // ---------- FORSLAG: MODAL ----------
     if (i.isModalSubmit() && i.customId === 'forslag_modal') {
       const ign = i.fields.getTextInputValue('ign').trim();
@@ -135,6 +231,14 @@ client.on('interactionCreate', async i => {
         const bruger = await client.users.fetch(f.user).catch(() => null);
         if (bruger) bruger.send(`Dit forslag er blevet **${ok ? 'godkendt' : 'afvist'}**: "${f.tekst.slice(0, 200)}"${svar ? `\nBegrundelse: ${svar}` : ''}`).catch(() => {});
         return i.reply({ content: `Forslag \`${sid}\` er ${ok ? 'godkendt' : 'afvist'}.`, flags: MessageFlags.Ephemeral });
+      }
+      if (i.commandName === 'stats') {
+        await i.deferReply();
+        const navn = i.options.getString('spiller').trim();
+        const emb = await lavStatsEmbed(navn).catch(e => { console.error('Stats-fejl:', e.message); return 'fejl'; });
+        if (emb === 'fejl') return i.editReply('Kunne ikke hente stats lige nu. Prøv igen om lidt.');
+        if (!emb) return i.editReply(`Fandt ingen spiller ved navn **${navn}**. Spilleren skal have været på serveren.`);
+        return i.editReply({ embeds: [emb] });
       }
       if (i.commandName === 'ip') {
         return i.reply({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🌐 Serverens IP').setDescription(`\`${SERVER_IP}\`\n\n⚠️ ${IP_NOTE}`)] });
