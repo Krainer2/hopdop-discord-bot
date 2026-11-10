@@ -242,6 +242,7 @@ async function hentEtiketter() {
   return etiketter;
 }
 const ANS_TYPE = { staff: ['Staff', '🛡️'], bygger: ['Bygger', '🧱'], unban: ['Unban', '🔓'] };
+let aktiveBans = new Set();
 const STRAF_FARVE = { BAN: 0xef4444, MUTE: 0xf59e0b, KICK: 0x3b82f6, WARN: 0xeab308 };
 
 async function tjekHjemmeside() {
@@ -277,6 +278,7 @@ async function tjekHjemmeside() {
   try {
     const { poster = [] } = await hentPrivat('straffe');
     const kanal = await client.channels.fetch(config.kanaler.straflog).catch(() => null);
+    aktiveBans = new Set(poster.filter(p => String(p.id).startsWith('aktiv-') && p.type === 'BAN' && (p.til === -1 || p.til > Date.now())).map(p => String(p.n).toLowerCase()));
     const nye = poster.filter(p => !String(p.id).startsWith('aktiv-') && !set.straffe.includes(p.id)).reverse();
     for (const p of nye) {
       set.straffe.push(p.id);
@@ -836,6 +838,25 @@ async function kommandoKanal(guild) {
   }
   return k;
 }
+// #anti-cheat-flags: flag fra serverens eget anti-cheat. Skriptet sender: broLog("A|spiller|check|detaljer")
+async function antiCheatKanal(guild) {
+  let k = config.kanaler.anticheat && await guild.channels.fetch(config.kanaler.anticheat).catch(() => null);
+  if (!k) {
+    const lc = await liveChatKanal(guild);
+    k = await guild.channels.create({ name: '🛡️┃anti-cheat-flags', type: ChannelType.GuildText, parent: lc.parentId || undefined,
+      topic: 'Flag fra HopDops anti-cheat i realtid. Mange flag på kort tid sendes også til #mistanke. Kun staff.', permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }] });
+    config.kanaler.anticheat = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#anti-cheat-flags er oprettet.');
+  }
+  return k;
+}
+const acHist = new Map();
+function acLinje(navn, check, info, t) {
+  const n = navn.toLowerCase(), h = (acHist.get(n) || []).filter(x => t - x < 10 * 60000); h.push(t); acHist.set(n, h);
+  if (h.length === 5) mistanke('Anti-cheat: mange flag', `**${escapeMarkdown(navn)}** er flagget ${h.length} gange på 10 minutter (seneste: ${escapeMarkdown(check)}). Tjek spilleren.`);
+  const eks = h.length >= 3 ? ` · **${h.length}. flag på 10 min**` : '';
+  return `\`${klok(t)}\` 🛡️ **${escapeMarkdown(navn)}** flagget for **${escapeMarkdown(check)}**${info ? ` (${penTekst(info, 200)})` : ''}${eks}`;
+}
 // #mistanke: alle 🚩 samlet ét sted, så staff kun skal følge én kanal
 async function mistankeKanal(guild) {
   let k = config.kanaler.mistanke && await guild.channels.fetch(config.kanaler.mistanke).catch(() => null);
@@ -861,7 +882,7 @@ async function opsaetLogs(guild) {
   let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === LOGS_KAT);
   if (!kat) kat = await guild.channels.create({ name: LOGS_KAT, type: ChannelType.GuildCategory, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ManageChannels] }] }).catch(e => { console.error('Logs-kategori:', e.message); return null; });
   if (!kat) return;
-  for (const noegle of ['straflog', 'botlog', 'joinleave', 'livekom', 'mistanke']) {
+  for (const noegle of ['straflog', 'botlog', 'joinleave', 'livekom', 'mistanke', 'anticheat']) {
     const id = config.kanaler[noegle]; const k = id && await guild.channels.fetch(id).catch(() => null);
     if (k && k.parentId !== kat.id) await k.setParent(kat.id, { lockPermissions: false, reason: 'Samlet i Logs' }).catch(e => console.error(`Flyt ${noegle}:`, e.message));
   }
@@ -884,6 +905,7 @@ async function opdaterLiveChatAdgang(guild) {
   const jl = await joinLeaveKanal(guild);
   const kk = await kommandoKanal(guild);
   const mk = await mistankeKanal(guild);
+  const ak = await antiCheatKanal(guild);
   const roller = new Set(['Ejer', ...(adgang.livechat || [])]);
   const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages] }];
   for (const navn of roller) { const r = guild.roles.cache.find(x => x.name === navn); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
@@ -891,11 +913,12 @@ async function opdaterLiveChatAdgang(guild) {
   await jl.permissionOverwrites.set(ow).catch(e => console.error('#join-leave adgang:', e.message));
   await kk.permissionOverwrites.set(ow).catch(e => console.error('#live-kommandoer adgang:', e.message));
   await mk.permissionOverwrites.set(ow).catch(e => console.error('#mistanke adgang:', e.message));
+  await ak.permissionOverwrites.set(ow).catch(e => console.error('#anti-cheat adgang:', e.message));
 }
 const klok = t => new Date(t).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit' });
 const RANK_IKON = { Ejer: '👑', Admin: '🔴', Mod: '🟣', 'Hjælper': '🟢', Builder: '🔷', Legende: '💎', Mester: '💠', Diamant: '💎', Guld: '🟡', 'Sølv': '⚪', Bronze: '🟤' };
 // Join/leave-overvågning: spilletid og join/leave-spam (kan være omgåelse af straf, bot-angreb eller combat-log)
-const joinTid = new Map(), joinHist = new Map();
+const joinTid = new Map(), joinHist = new Map(), sidsteQ = new Map();
 function joinFlag(navn, t) {
   const n = navn.toLowerCase(); joinTid.set(n, t);
   const h = (joinHist.get(n) || []).filter(x => t - x < 10 * 60000); h.push(t); joinHist.set(n, h);
@@ -915,8 +938,17 @@ function chatLinje(c) {
   const tid = `\`${klok(c.t)}\``;
   const e = escapeMarkdown;
   if (type === 'C') return `${tid} 💬 **${e(a)}** » ${penTekst(b)}`;
-  if (type === 'J') return `${tid} 🟢 **${e(a)}** joinede serveren${joinFlag(a, c.t)}`;
-  if (type === 'Q') return `${tid} 🔴 **${e(a)}** forlod serveren${spilletid(a, c.t)}`;
+  if (type === 'A') { const [check, ...inf] = rest; return acLinje(a, check || 'ukendt', inf.join('|'), c.t); }
+  if (type === 'J') {
+    const banlyst = aktiveBans.has(a.toLowerCase());
+    if (banlyst) mistanke('Banlyst spiller forsøgte at joine', `**${e(a)}** er banlyst, men forsøgte at joine serveren. Tjek for omgåelse af straf.`, 0xf59e0b);
+    return `${tid} 🟢 **${e(a)}** joinede serveren${banlyst ? ' 🚫 **er banlyst, bliver sparket igen**' : ''}${joinFlag(a, c.t)}`;
+  }
+  if (type === 'Q') { // to "forlod" i træk uden join imellem er samme afgang (kick + quit)
+    const sidste = sidsteQ.get(a.toLowerCase()); sidsteQ.set(a.toLowerCase(), c.t);
+    if (sidste && c.t - sidste < 5000 && !joinTid.has(a.toLowerCase())) return '';
+    return `${tid} 🔴 **${e(a)}** forlod serveren${spilletid(a, c.t)}`;
+  }
   if (type === 'D') return `${tid} 💀 ${e(a)}`;
   if (type === 'K') { // K|rank|spiller|/kommando
     const [spiller, ...k] = rest;
@@ -945,18 +977,20 @@ async function tjekBro() {
       const jl = await joinLeaveKanal(guild);
       const send = async (kanal, linjer) => {
         let blok = '';
-        for (const l of linjer) {
+        for (const l of linjer.filter(Boolean)) {
           if ((blok + l).length > 1900) { await kanal.send({ content: blok, allowedMentions: { parse: [] } }); blok = ''; }
           blok += l + '\n';
         }
         if (blok) await kanal.send({ content: blok, allowedMentions: { parse: [] } });
       };
       const jlTyper = c => ['J', 'Q'].includes(c.tekst.split('|')[0]);
+      const acTyper = c => c.tekst.split('|')[0] === 'A';
       const kom = await kommandoKanal(guild);
       const komTyper = c => c.tekst.split('|')[0] === 'K';
-      await send(k, d.chat.filter(c => !jlTyper(c) && !komTyper(c)).map(chatLinje));
+      await send(k, d.chat.filter(c => !jlTyper(c) && !komTyper(c) && !acTyper(c)).map(chatLinje));
       await send(jl, d.chat.filter(jlTyper).map(chatLinje));
       await send(kom, d.chat.filter(komTyper).map(chatLinje));
+      await send(await antiCheatKanal(guild), d.chat.filter(acTyper).map(chatLinje));
     }
   } catch (e) { if (!String(e.message).includes('fetch failed')) console.error('Bro:', e.message); }
 }
