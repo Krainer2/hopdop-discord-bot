@@ -1116,7 +1116,7 @@ async function opsaetAabenKategori(guild) {
 }
 async function opsaetOnboarding(guild) {
   config.community = config.community || {};
-  if (config.community.onboarding === 4) return;
+  if (config.community.onboarding === 5) return;
   await guild.roles.fetch();
   // Opret ping-rollerne hvis de mangler, så spørgsmålet altid har noget at give
   for (const [n, c] of [['Events', 0xfbbf24], ['Giveaway', 0xf472b6], ['Dev-Log', 0x4ade80]]) {
@@ -1131,7 +1131,7 @@ async function opsaetOnboarding(guild) {
   const synlige = [...aabne, k.velkommen, k.regler].filter(id => id && guild.channels.cache.has(id) && guild.channels.cache.get(id).permissionsFor(guild.roles.everyone)?.has(P.ViewChannel));
   const body = { enabled: true, mode: 0, default_channel_ids: synlige, prompts: [{ type: 0, title: 'Hvad vil du have besked om?', single_select: false, required: false, in_onboarding: true, options: valg }] };
   await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, { body })
-    .then(() => { config.community.onboarding = 4; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
+    .then(() => { config.community.onboarding = 5; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
     .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 standardkanaler, hvor mindst 5 kan skrives i af alle) – slå den til under Server Settings → Onboarding:', e.message));
 }
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
