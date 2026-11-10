@@ -1113,18 +1113,19 @@ async function opsaetOnboarding(guild) {
     .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 synlige kanaler) – slå den til under Server Settings → Onboarding:', e.message));
 }
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
-async function opsaetPynt(guild) {
+async function opsaetPynt(guild, tving = false) {
   config.pynt = config.pynt || {};
-  if (config.pynt.emojisV !== 5) {
+  const rap = { nye: 0, fejl: [] };
+  if (tving || config.pynt.emojisV !== 5) {
     await guild.emojis.fetch();
     for (const e of guild.emojis.cache.values()) if (e.name.startsWith('hopdop_') || e.name.startsWith('hoppe_')) await e.delete('Erstattes af nye emojis').catch(() => {}); // gamle, enkle emojis
-    let n = 0;
     for (const [navn, b64] of Object.entries(EKSTRA_DATA.emojis)) {
       const dk = DK_EMOJI[navn] || navn;
       if (guild.emojis.cache.some(e => e.name === dk || e.name === navn)) continue;
-      await opretEmoji(guild, dk, Buffer.from(b64, 'base64'), 'HOPDOP emojis').then(() => n++).catch(e => console.error(`Emoji ${navn}:`, e.message));
+      await opretEmoji(guild, dk, Buffer.from(b64, 'base64'), 'HOPDOP emojis').then(() => rap.nye++).catch(e => { rap.fejl.push(`${navn}: ${e.message}`); console.error(`Emoji ${navn}:`, e.message); });
     }
-    config.pynt.emojisV = 5; console.log(`Pynt: ${n} server-emojis oprettet.`);
+    if (!rap.fejl.length) config.pynt.emojisV = 5; // først færdig, når alle er oprettet (ellers prøver botten igen ved næste start)
+    console.log(`Pynt: ${rap.nye} server-emojis oprettet${rap.fejl.length ? `, ${rap.fejl.length} fejlede` : ''}.`);
   }
   if (!config.pynt.lyde) {
     for (const [navn, l] of Object.entries(EKSTRA_DATA.lyde)) {
@@ -1139,6 +1140,7 @@ async function opsaetPynt(guild) {
     config.pynt.ikoner = true; console.log('Pynt: rolleikoner er sat.');
   } else if (guild.premiumTier < 2 && !config.pynt.ikoner) console.log('Pynt: rolleikoner springes over (kræver boost-niveau 2) – de sættes automatisk, når serveren når det.');
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  return rap;
 }
 // /event: planlagt Discord-event i Event-talerummet
 async function opretEvent(i) {
@@ -1350,12 +1352,12 @@ async function opsaetSupport(guild) {
   await opsaetStaffTale(guild);
   await opsaetPrivat(guild);
   await engangsOprydning(guild);
-  await opsaetTaleNavne(guild);
-  await opsaetCommunity(guild);
-  await opsaetForummer(guild);
-  await opsaetOnboarding(guild);
-  await opsaetPynt(guild);
-  await opsaetGoons(guild);
+  await opsaetTaleNavne(guild).catch(e => console.error('opsaetTaleNavne:', e.message));
+  await opsaetCommunity(guild).catch(e => console.error('opsaetCommunity:', e.message));
+  await opsaetForummer(guild).catch(e => console.error('opsaetForummer:', e.message));
+  await opsaetOnboarding(guild).catch(e => console.error('opsaetOnboarding:', e.message));
+  await opsaetPynt(guild).catch(e => console.error('opsaetPynt:', e.message));
+  await opsaetGoons(guild).catch(e => console.error('opsaetGoons:', e.message));
   await opsaetEmojiMappe(guild).catch(e => console.error('Emoji-mappe:', e.message));
   // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
   if (config.layoutVersion !== LAYOUT_VERSION) {
@@ -2515,6 +2517,9 @@ client.on('interactionCreate', async i => {
         if (!i.memberPermissions?.has(P.Administrator)) return i.reply({ content: 'Kun admins kan bruge den.', flags: MessageFlags.Ephemeral });
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const r = await opsaetEmojiMappe(i.guild).catch(e => ({ nye: [], sprunget: [], fejl: [e.message] }));
+        const p = await opsaetPynt(i.guild, true).catch(e => ({ nye: 0, fejl: [e.message] }));
+        if (p.nye || p.fejl.length) r.nye.push(...Array(p.nye).fill('HopDop-emoji')); if (p.fejl.length) r.fejl.push(...p.fejl.slice(0, 3));
+        if (p.fejl.length && /permission|access/i.test(p.fejl.join())) r.fejl.push('Botten mangler rettigheden **Create Expressions** (Server Settings → Roller → bot-rollen)');
         return i.editReply(`😀 **Tilføjet:** ${r.nye.length ? r.nye.map(n => `\`${n}\``).join(', ') : 'ingen nye'}\n⏭️ Findes allerede: ${r.sprunget.length}\n${r.fejl.length ? `⚠️ Fejl: ${r.fejl.join('; ')}` : 'Mappen hedder `emojis` ved siden af index.js.'}`);
       }
       if (i.commandName === 'goons') {
