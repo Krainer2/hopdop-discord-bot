@@ -898,6 +898,27 @@ async function opdaterPanel(kanal, find, besked) {
   if (m) return m.edit(besked).catch(e => console.error('Panel:', e.message));
   return kanal.send(besked).catch(e => console.error('Panel:', e.message));
 }
+// Ingen roller kan pinges af spillere, og @everyone/@here er slået fra for alle uden for staff
+async function laasPings(guild) {
+  await guild.roles.fetch();
+  const ev = guild.roles.everyone;
+  if (ev.permissions.has(P.MentionEveryone)) await ev.setPermissions(ev.permissions.remove(P.MentionEveryone)).catch(e => console.error('@everyone-rettighed:', e.message));
+  for (const r of guild.roles.cache.values()) {
+    if (r.id === ev.id || r.managed) continue;
+    if (r.mentionable) await r.setMentionable(false).catch(e => console.error(`Kan ikke låse pings på ${r.name} (flyt botten højere op i rollelisten):`, e.message));
+    if (!STAFF.includes(r.id) && r.permissions.has(P.MentionEveryone) && !r.permissions.has(P.Administrator)) await r.setPermissions(r.permissions.remove(P.MentionEveryone)).catch(() => {});
+  }
+}
+client.on('messageCreate', async m => {
+  try {
+    if (!m.guild || m.author.bot || m.webhookId || m.system) return;
+    if (!m.mentions.everyone && !m.mentions.roles.size) return;
+    if (m.member?.permissions.has(P.Administrator) || m.member?.roles.cache.some(r => STAFF.includes(r.id))) return;
+    await m.delete().catch(() => {});
+    const w = await m.channel.send({ content: `${m.author}, du kan ikke tagge roller eller alle. Tag en enkelt spiller i stedet. 🚫`, allowedMentions: { users: [m.author.id] } }).catch(() => null);
+    if (w) setTimeout(() => w.delete().catch(() => {}), 8000);
+  } catch (e) { console.error('Ping-lås:', e.message); }
+});
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -909,8 +930,7 @@ async function opsaetRettigheder(guild) {
   // Botten: egen rolle, så den ikke ligger under "Online"
   const botRolle = guild.members.me.roles.botRole;
   if (botRolle) await botRolle.edit({ name: 'HOPDOP Bot', hoist: true, color: 0x4ade80 }).catch(e => console.error('Bot-rolle:', e.message));
-  // Ingen almindelige roller kan pinges af spillere
-  for (const r of guild.roles.cache.values()) if (r.mentionable && !r.managed) await r.setMentionable(false).catch(() => {});
+  await laasPings(guild);
   // #ansøgninger: kun læsning for spillere + knapper til hjemmesiden
   const ansog = config.kanaler.ansog && await guild.channels.fetch(config.kanaler.ansog).catch(() => null);
   if (ansog) {
@@ -1354,6 +1374,7 @@ client.once('clientReady', async () => {
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
   await synkRollerFil(true); setInterval(synkRollerFil, 60000);
   await opsaetRettigheder(guild).catch(e => console.error('Rettigheder:', e.message));
+  setInterval(() => laasPings(guild).catch(() => {}), 5 * 60000);
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
   postDevlog(); setInterval(postDevlog, 60000);
