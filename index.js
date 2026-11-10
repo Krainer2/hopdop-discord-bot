@@ -11,7 +11,15 @@ const STAFF = ['Ejer', 'Admin', 'Mod', 'Hjælper'].map(n => config.roller[n]);
 const SERVER_IP = process.env.SERVER_IP || 'hopdop.superawesome.dk';
 const IP_NOTE = 'Da vi ikke har VIP, kan du ikke connecte direkte til Hopdop. Join med IP\'en ovenfor, og følg instrukserne, der kommer i chatten.';
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMessageReactions],
+// Tjekker om "Message Content Intent" er slået til i Developer Portal (ellers ville botten ikke kunne logge ind)
+const MESSAGE_CONTENT = (() => {
+  try {
+    const kode = "fetch('https://discord.com/api/v10/applications/@me',{headers:{Authorization:'Bot '+process.env.TOKEN}}).then(r=>r.json()).then(d=>console.log(d.flags||0)).catch(()=>console.log(0))";
+    const flags = Number(require('child_process').execFileSync(process.execPath, ['-e', kode], { env: process.env, timeout: 15000 }).toString().trim()) || 0;
+    return (flags & ((1 << 18) | (1 << 19))) !== 0;
+  } catch { return false; }
+})();
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMessageReactions, ...(MESSAGE_CONTENT ? [GatewayIntentBits.MessageContent] : [])],
   partials: [Partials.Message, Partials.Reaction, Partials.User] });
 const giveaways = new Map(); // beskedId -> Set(brugerId)
 // Giveaways gemmes i giveaways.json, så de overlever en genstart
@@ -678,6 +686,50 @@ async function skrivBoost(guild, bruger, antal = 1, niveau = 0) {
   await kanal.send({ content: tekst, allowedMentions: { parse: [] } }).catch(e => console.error('Boost:', e.message));
   devlogDiscord(`💜 ${bruger.username} har boosted Discorden`);
 }
+// ================= CENSUR: grove ord bliver til spoilers =================
+// Botten sletter beskeden og sender den igen (med spillerens navn og billede), hvor det grove ord står som ||spoiler||.
+const LEET = { a: '[a@4]', e: '[e3]', i: '[i1!|l]', o: '[o0]', s: '[s$5z]', g: '[g9]', u: '[uv]' };
+const bogstav = c => LEET[c] || c;
+// ord -> regex: tillader gentagne bogstaver, tegn imellem (n.i.g.g.e.r) og tal-erstatninger
+function ordRegex(ord, { graense = true, ekstra = '' } = {}) {
+  const dele = [...ord].map(c => `${bogstav(c)}+`).join('[\\s._*\\-]*');
+  return new RegExp(`${graense ? '(?<![a-zæøå])' : ''}${dele}${ekstra}${graense ? '(?![a-zæøå])' : ''}`, 'giu');
+}
+const CENSUR = [
+  new RegExp('(?<!s)n+[\\s._*\\-]*[i1!|l]+[\\s._*\\-]*[g9]+[\\s._*\\-]*[g9]+[\\s._*\\-]*(?:[e3]+[\\s._*\\-]*r+|[a@4]+h*|[e3]+[a@4]+)s*', 'giu'), // n-ordet
+  ordRegex('neger', { ekstra: 's?' }), ordRegex('faggot'), ordRegex('fagot'), ordRegex('kike', { ekstra: 's?' }), ordRegex('chink'), ordRegex('spic'),
+  ordRegex('tranny'), ordRegex('paki'), ordRegex('retard', { ekstra: '(?:ed|s)?' }), ordRegex('spasser', { ekstra: 's?' }), ordRegex('mongol', { ekstra: 's?' }),
+  ordRegex('bøsserøv'), ordRegex('niggerjøde'), ordRegex('sandneger'), ordRegex('abekat'),
+];
+function censurer(tekst) {
+  let ud = tekst, ramt = false;
+  for (const re of CENSUR) ud = ud.replace(re, ord => { ramt = true; return `||${ord.replace(/\|/g, '')}||`; });
+  return ramt ? ud : null;
+}
+const censurHook = new Map(); // kanalId -> webhook
+async function censurSend(m, tekst) {
+  const kanal = m.channel.isThread() ? m.channel.parent : m.channel;
+  const trad = m.channel.isThread() ? { threadId: m.channel.id } : {};
+  let hook = censurHook.get(kanal.id);
+  if (!hook && kanal.fetchWebhooks) {
+    hook = (await kanal.fetchWebhooks().catch(() => null))?.find(h => h.owner?.id === client.user.id && h.name === 'HOPDOP Censur')
+      || await kanal.createWebhook({ name: 'HOPDOP Censur' }).catch(() => null);
+    if (hook) censurHook.set(kanal.id, hook);
+  }
+  const navn = m.member?.displayName || m.author.username;
+  if (hook) return hook.send({ content: tekst, username: navn.slice(0, 80), avatarURL: m.author.displayAvatarURL(), allowedMentions: { parse: [] }, ...trad }).catch(() => m.channel.send({ content: `**${escapeMarkdown(navn)}:** ${tekst}`, allowedMentions: { parse: [] } }));
+  return m.channel.send({ content: `**${escapeMarkdown(navn)}:** ${tekst}`, allowedMentions: { parse: [] } });
+}
+client.on('messageCreate', async m => {
+  try {
+    if (!MESSAGE_CONTENT || !m.guild || m.author.bot || m.webhookId || m.system || !m.content) return;
+    const ny = censurer(m.content);
+    if (!ny || m.attachments.size) return;
+    await m.delete().catch(() => {});
+    await censurSend(m, ny.slice(0, 2000));
+  } catch (e) { console.error('Censur:', e.message); }
+});
+
 // Discord sender selv en "boost"-besked i systemkanalen - den læser vi
 client.on('messageCreate', m => {
   if (!m.guild || !(m.type in BOOST_TYPER)) return;
@@ -1566,4 +1618,5 @@ client.on('interactionCreate', async i => {
   }
 });
 
+if (!MESSAGE_CONTENT) console.log('Censur (spoiler på grove ord) er slået fra: tænd "Message Content Intent" i Developer Portal -> Bot, og genstart botten.');
 client.login(process.env.TOKEN);
