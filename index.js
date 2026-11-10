@@ -1144,8 +1144,9 @@ const LAYOUT_BACKUP = 'layout-backup.json';
 // Kategorier i rækkefølge (staff-kategorierne røres ikke). "gamle" = navne den kan have i forvejen. "kanaler" = nøgler i config.json eller navne på talekanaler.
 const LAYOUT = [
   { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
-  { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus', 'leaderboards', 'giveaways', 'boosts'] },
-  { navn: '[ 💬 ] TEKST KANALER', gamle: ['💬 COMMUNITY'], kanaler: ['chat', 'medier', 'forslag', 'botcmd'] },
+  { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus'] },
+  { navn: '[ 💬 ] TEKST KANALER', gamle: [], kanaler: ['chat', 'medier', 'memes', 'botcmd'] },
+  { navn: '[ 🌟 ] COMMUNITY', gamle: ['💬 COMMUNITY'], kanaler: ['forslag', 'giveaways', 'leaderboards', 'boosts'] },
   { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '🎪 Event', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
   { navn: PRIVAT_KAT, gamle: [], noegle: 'privatkat', kanaler: ['privatkanal'] },
   { navn: '[ 🎫 ] TICKETS & SUPPORT', gamle: ['🎫 SUPPORT'], noegle: 'support', kanaler: ['ticket', 'fejl', 'ansog', 'tilkald', VENTE_RUM, ...SUPPORT_RUM] },
@@ -1163,6 +1164,13 @@ async function layoutAnvend(guild) {
     if (!k) { k = await guild.channels.create({ name: l.navn, type: ChannelType.GuildCategory }); backup.oprettet.push(k.id); }
     else if (k.name !== l.navn) await k.setName(l.navn).catch(e => console.error('Layout navn:', e.message));
     kat.push({ l, k });
+  }
+  // #memes findes måske ikke endnu: lav den med samme rettigheder som #chat
+  if (!config.kanaler.memes || !guild.channels.cache.get(config.kanaler.memes)) {
+    const chat = guild.channels.cache.get(config.kanaler.chat);
+    const fundet = alle.find(c => c.type === ChannelType.GuildText && /memes/i.test(c.name));
+    const m = fundet || await guild.channels.create({ name: '😂┃memes', type: ChannelType.GuildText, topic: 'Del dine bedste memes 😂', permissionOverwrites: chat ? [...chat.permissionOverwrites.cache.values()].map(o => ({ id: o.id, type: o.type, allow: o.allow, deny: o.deny })) : [] }).catch(e => { console.error('#memes:', e.message); return null; });
+    if (m) { config.kanaler.memes = m.id; backup.oprettet.push(...(fundet ? [] : [m.id])); fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); }
   }
   fs.writeFileSync(LAYOUT_BACKUP, JSON.stringify(backup, null, 2));
   // Kategorierne: STATS (0) og LINK (1) bliver øverst, derefter vores
