@@ -1152,6 +1152,30 @@ async function opretEvent(i) {
   if (kanal) sendPing(kanal, 'Events', { content: undefined, embeds: [new EmbedBuilder().setColor(0xfbbf24).setTitle(`🎪 Nyt event: ${titel}`).setDescription(`${besk}\n\n⏰ Starter <t:${Math.floor(start.getTime() / 1000)}:R> (<t:${Math.floor(start.getTime() / 1000)}:t>)\n🔊 ${rum}\n➡️ Tryk **Interesseret** på eventet: ${ev.url}`)] }).catch(() => {});
   return i.reply({ content: `✅ Eventet er oprettet: ${ev.url}`, flags: MessageFlags.Ephemeral });
 }
+// ================= GOONS-ROLLEN (kun to personer må dele den ud) =================
+const GOONS_UDDELERE = ['328615599641067527', '500265348721803266'];
+const goonsRolle = guild => guild.roles.cache.find(r => r.name === 'Goons');
+async function opsaetGoons(guild) {
+  await guild.roles.fetch();
+  if (goonsRolle(guild)) return;
+  await guild.roles.create({ name: 'Goons', color: 0x7f1d1d, hoist: true, mentionable: false, permissions: [], reason: 'Goons-rolle' })
+    .then(() => console.log('Goons-rollen er oprettet.')).catch(e => console.error('Goons-rolle:', e.message));
+}
+// Hvis andre end de to giver rollen på anden vis (Discord manuelt), fjerner botten den igen
+client.on('guildMemberUpdate', async (gl, ny) => {
+  try {
+    const r = goonsRolle(ny.guild); if (!r || gl.roles.cache.has(r.id) || !ny.roles.cache.has(r.id)) return;
+    if (goonsBotGiver.delete(ny.id)) return;
+    let udfoerer = null;
+    const log = await ny.guild.fetchAuditLogs({ type: 25, limit: 6 }).catch(() => null); // MemberRoleUpdate
+    const e = log?.entries.find(x => x.target?.id === ny.id && Date.now() - x.createdTimestamp < 15000 && x.changes?.some(c => c.key === '$add' && c.new?.some(o => o.id === r.id)));
+    udfoerer = e?.executorId;
+    if (udfoerer && (GOONS_UDDELERE.includes(udfoerer) || udfoerer === client.user.id)) return;
+    await ny.roles.remove(r, 'Kun to personer må give Goons').catch(() => {});
+    console.log(`Goons: rollen blev fjernet fra ${ny.user.username} (givet af ${udfoerer || 'ukendt'}).`);
+  } catch (e) { console.error('Goons-vagt:', e.message); }
+});
+const goonsBotGiver = new Set();
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -1298,6 +1322,7 @@ async function opsaetSupport(guild) {
   await opsaetForummer(guild);
   await opsaetOnboarding(guild);
   await opsaetPynt(guild);
+  await opsaetGoons(guild);
   // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
   if (config.layoutVersion !== LAYOUT_VERSION) {
     const r = await layoutAnvend(guild).catch(e => { console.error('Layout:', e.message); return null; });
@@ -2176,6 +2201,9 @@ const kommandoer = [
     .addIntegerOption(o => o.setName('varighed').setDescription('Hvor mange minutter varer det? (standard 60)').setMinValue(5).setMaxValue(720))
     .addStringOption(o => o.setName('beskrivelse').setDescription('Kort beskrivelse (valgfri)'))
     .setDefaultMemberPermissions(P.ManageMessages),
+  new SlashCommandBuilder().setName('goons').setDescription('Giv eller fjern Goons-rollen (kun to udvalgte)')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true).addChoices({ name: 'Giv', value: 'giv' }, { name: 'Fjern', value: 'fjern' }))
+    .addUserOption(o => o.setName('bruger').setDescription('Hvem?').setRequired(true)),
   new SlashCommandBuilder().setName('censur').setDescription('Slå censur (grove ord som spoilers) til eller fra')
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Slå til', value: 'til' }, { name: 'Slå fra (vis ordene)', value: 'fra' }, { name: 'Status', value: 'status' }))
@@ -2447,6 +2475,14 @@ client.on('interactionCreate', async i => {
       if (i.commandName === 'event') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan oprette events.', flags: MessageFlags.Ephemeral });
         return opretEvent(i);
+      }
+      if (i.commandName === 'goons') {
+        if (!GOONS_UDDELERE.includes(i.user.id)) return i.reply({ content: 'Kun to udvalgte personer kan dele Goons-rollen ud.', flags: MessageFlags.Ephemeral });
+        const r = goonsRolle(i.guild); const m = i.options.getMember('bruger');
+        if (!r || !m) return i.reply({ content: 'Fandt ikke rollen eller brugeren.', flags: MessageFlags.Ephemeral });
+        if (i.options.getString('handling') === 'giv') { goonsBotGiver.add(m.id); await m.roles.add(r, `Goons givet af ${i.user.username}`); }
+        else await m.roles.remove(r, `Goons fjernet af ${i.user.username}`);
+        return i.reply({ content: `😈 ${m} ${i.options.getString('handling') === 'giv' ? 'er nu' : 'er ikke længere'} **Goons**.`, flags: MessageFlags.Ephemeral });
       }
       if (i.commandName === 'censur') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan styre censuren.', flags: MessageFlags.Ephemeral });
