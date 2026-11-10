@@ -943,13 +943,14 @@ async function saetSlowmode(guild) {
 }
 // I disse kanaler skal der ikke føres lange samtaler (det hører til i #chat)
 const IKKE_SNAK = ['medier', 'memes', 'botcmd'];
+let samtaleTest = false; // test-tilstand: staff er IKKE undtaget (slås fra ved genstart)
 const snakBuffer = new Map(); // kanalId -> [{ a, t }]
 const snakAdvaret = new Map(); // kanalId -> { par, t }
 client.on('messageCreate', async m => {
   try {
     if (!m.guild || m.author.bot || m.webhookId || m.system || !m.member) return;
     if (!IKKE_SNAK.some(n => config.kanaler[n] === m.channelId)) return;
-    if (erStaff(m.member) || m.member.permissions.has(P.Administrator)) return;
+    if (!samtaleTest && (erStaff(m.member) || m.member.permissions.has(P.Administrator))) return;
     const nu = Date.now();
     const buf = (snakBuffer.get(m.channelId) || []).filter(x => nu - x.t < 10 * 60000); buf.push({ a: m.author.id, t: nu });
     snakBuffer.set(m.channelId, buf.slice(-30));
@@ -965,7 +966,7 @@ client.on('messageCreate', async m => {
     snakBuffer.set(m.channelId, []);
     if (adv && adv.par === par && nu - adv.t < 20 * 60000) {
       // Bliver de ved efter advarslen: lille automute på 5 minutter
-      for (const f of folk) { const mem = await m.guild.members.fetch(f).catch(() => null); if (mem && !erStaff(mem)) await mem.timeout(5 * 60000, 'Samtale i forkert kanal (efter advarsel)').catch(e => console.error('Automute:', e.message)); }
+      for (const f of folk) { const mem = await m.guild.members.fetch(f).catch(() => null); if (mem && (samtaleTest || !erStaff(mem))) await mem.timeout(5 * 60000, 'Samtale i forkert kanal (efter advarsel)').catch(e => console.error('Automute:', e.message)); }
       snakAdvaret.delete(m.channelId);
       const b = await m.channel.send({ content: `🔇 <@${folk[0]}> og <@${folk[1]}> er sat på mute i 5 minutter, fordi I blev ved. Brug ${chat} til at snakke sammen.`, allowedMentions: { users: folk } }).catch(() => null);
       if (b) setTimeout(() => b.delete().catch(() => {}), 2 * 60000);
@@ -1979,6 +1980,10 @@ const kommandoer = [
       .addChoices(...Object.entries(ADGANG_KOMMANDOER).map(([value, b]) => ({ name: `${value} · ${b}`.slice(0, 100), value }))))
     .addRoleOption(o => o.setName('rolle').setDescription('Hvilken rolle?'))
     .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('samtalevagt').setDescription('Test samtale-vagten (staff er normalt undtaget)')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Test til (staff tæller med)', value: 'til' }, { name: 'Test fra', value: 'fra' }, { name: 'Status', value: 'status' }))
+    .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('censur').setDescription('Slå censur (grove ord som spoilers) til eller fra')
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Slå til', value: 'til' }, { name: 'Slå fra (vis ordene)', value: 'fra' }, { name: 'Status', value: 'status' }))
@@ -2234,6 +2239,11 @@ client.on('interactionCreate', async i => {
           case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
           default: return i.reply({ content: 'Ukendt kommando.', flags: MessageFlags.Ephemeral });
         }
+      }
+      if (i.commandName === 'samtalevagt') {
+        if (!i.memberPermissions?.has(P.Administrator)) return i.reply({ content: 'Kun admins kan bruge den.', flags: MessageFlags.Ephemeral });
+        const h = i.options.getString('handling'); if (h === 'til') samtaleTest = true; else if (h === 'fra') samtaleTest = false;
+        return i.reply({ flags: MessageFlags.Ephemeral, content: `💬 Samtale-vagt test er **${samtaleTest ? 'TIL' : 'FRA'}**.\n${samtaleTest ? 'Staff tæller nu med, så du kan teste: skriv ca. 12 beskeder frem og tilbage med en anden i #medier, #memes eller #bot-kommandoer. Husk at slå testen fra bagefter (den slås også fra ved genstart).' : 'Staff er undtaget.'}\nVagten kigger kun i medier, memes og bot-kommandoer – ikke i #chat.` });
       }
       if (i.commandName === 'censur') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan styre censuren.', flags: MessageFlags.Ephemeral });
