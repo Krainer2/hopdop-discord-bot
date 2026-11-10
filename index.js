@@ -1146,7 +1146,7 @@ async function tilkaldStaff(i, grund) {
 }
 // ================= LAYOUT: opdel kanalerne i pæne kategorier (/layout anvend | fortryd) =================
 const LAYOUT_BACKUP = 'layout-backup.json';
-const LAYOUT_VERSION = 4;
+const LAYOUT_VERSION = 5;
 // Kategorier i rækkefølge (staff-kategorierne røres ikke). "gamle" = navne den kan have i forvejen. "kanaler" = nøgler i config.json eller navne på talekanaler.
 const LAYOUT = [
   { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
@@ -1184,8 +1184,10 @@ async function layoutAnvend(guild) {
   // Kategorierne: STATS (0) og LINK (1) bliver øverst, derefter vores
   const top = ['statskat', 'linkkat'].map(n => config.kanaler[n]).filter(Boolean);
   const mine = [...top, ...kat.map(x => x.k.id)];
-  const resten = alle.filter(c => c.type === ChannelType.GuildCategory && !mine.includes(c.id)).sort((a, b) => a.rawPosition - b.rawPosition).map(c => c.id);
-  const raekke = [...mine, ...resten];
+  // Nederst: staff og admin (vigtigste øverst, staff nederst)
+  const bund = [config.kanaler.aktivkat, guild.channels.cache.get(config.kanaler.staffchat)?.parentId, config.kanaler.stafftalekat, config.kanaler.adminkat].filter(Boolean);
+  const resten = alle.filter(c => c.type === ChannelType.GuildCategory && !mine.includes(c.id) && !bund.includes(c.id)).sort((a, b) => a.rawPosition - b.rawPosition).map(c => c.id);
+  const raekke = [...new Set([...mine, ...resten, ...bund])];
   await guild.channels.setPositions(raekke.map((id, position) => ({ channel: id, position }))).catch(e => console.error('Layout kategorier:', e.message));
   // Kanalerne ind i kategorierne én ad gangen (uden at røre deres rettigheder)
   let flyttet = 0;
