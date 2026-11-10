@@ -1116,16 +1116,13 @@ async function opsaetOnboarding(guild) {
 async function opsaetPynt(guild, tving = false) {
   config.pynt = config.pynt || {};
   const rap = { nye: 0, fejl: [] };
-  if (tving || config.pynt.emojisV !== 5) {
+  // Mine egne HopDop-/Hoppe-emojis er fjernet (du ville ikke have dem) - slet dem fra serveren og opret dem ikke igen
+  if (tving || config.pynt.emojisV !== 6) {
     await guild.emojis.fetch();
-    for (const e of guild.emojis.cache.values()) if (e.name.startsWith('hopdop_') || e.name.startsWith('hoppe_')) await e.delete('Erstattes af nye emojis').catch(() => {}); // gamle, enkle emojis
-    for (const [navn, b64] of Object.entries(EKSTRA_DATA.emojis)) {
-      const dk = DK_EMOJI[navn] || navn;
-      if (guild.emojis.cache.some(e => e.name === dk || e.name === navn)) continue;
-      await opretEmoji(guild, dk, Buffer.from(b64, 'base64'), 'HOPDOP emojis').then(() => rap.nye++).catch(e => { rap.fejl.push(`${navn}: ${e.message}`); console.error(`Emoji ${navn}:`, e.message); });
-    }
-    if (!rap.fejl.length) config.pynt.emojisV = 5; // først færdig, når alle er oprettet (ellers prøver botten igen ved næste start)
-    console.log(`Pynt: ${rap.nye} server-emojis oprettet${rap.fejl.length ? `, ${rap.fejl.length} fejlede` : ''}.`);
+    let slettet = 0;
+    for (const e of guild.emojis.cache.values()) if (e.name.startsWith('hopdop_') || e.name.startsWith('hoppe_')) { await e.delete('Fjernet efter ønske').then(() => slettet++).catch(err => rap.fejl.push(`${e.name}: ${err.message}`)); }
+    if (!rap.fejl.length) config.pynt.emojisV = 6;
+    console.log(`Pynt: ${slettet} af mine egne emojis er slettet.`);
   }
   if (!config.pynt.lyde) {
     for (const [navn, l] of Object.entries(EKSTRA_DATA.lyde)) {
