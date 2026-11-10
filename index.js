@@ -647,7 +647,7 @@ async function saetGrafik(guild) {
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 }
 const SERVER_BESKRIVELSE = `Dansk Minecraft HCF Kits-server på 1.8.9 🏯 Kits, teams, KOTH og duels. Join: ${SERVER_IP}`;
-client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) saetGrafik(ny); if (ny.premiumSubscriptionCount !== gl.premiumSubscriptionCount) opdaterBoostHoved(ny); });
+client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) { saetGrafik(ny); opsaetPynt(ny); } if (ny.premiumSubscriptionCount !== gl.premiumSubscriptionCount) opdaterBoostHoved(ny); });
 
 // ---------- #boosts: hvem har boosted serveren ----------
 const BOOST_TYPER = { 8: 0, 9: 1, 10: 2, 11: 3 }; // Discords boost-beskeder -> niveau (0 = intet nyt niveau)
@@ -1010,6 +1010,123 @@ async function opsaetCommunity(guild) {
     .then(() => console.log('Community: onboarding er slået til.')).catch(e => console.log('Onboarding kunne ikke slås til automatisk (Discord kræver mindst 7 synlige kanaler og et spørgsmål) – slå den til under Server Settings → Onboarding:', e.message));
   config.community.v = COMMUNITY_VERSION; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 }
+// ================= EKSTRA FUNKTIONER: forum, events, onboarding, emojis, lyde, rolleikoner =================
+const EKSTRA_DATA = fs.existsSync('./ekstra-data.js') ? require('./ekstra-data.js') : { emojis: {}, lyde: {} };
+const FORSLAG_TAGS = [['Nyt', '🆕'], ['Godkendt', '✅'], ['Afvist', '❌'], ['Overvejes', '🤔']];
+const FEJL_TAGS = [['Ny', '🆕'], ['I gang', '🛠️'], ['Løst', '✅']];
+const tagId = (forum, navn) => forum?.availableTags?.find(t => t.name === navn)?.id;
+async function sikrForum(guild, noegle, navn, topic, tags, ow, parent) {
+  let f = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+  if (f) { await f.permissionOverwrites.set(ow).catch(() => {}); return f; }
+  f = await guild.channels.create({ name: navn, type: ChannelType.GuildForum, topic, parent, permissionOverwrites: ow,
+    availableTags: tags.map(([n, e]) => ({ name: n, emoji: { id: null, name: e } })), defaultReactionEmoji: { id: null, name: '👍' } })
+    .catch(e => { console.error(`Forum ${navn} (kræver Community):`, e.message); return null; });
+  if (f) { config.kanaler[noegle] = f.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); }
+  return f;
+}
+async function opsaetForummer(guild) {
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const spiller = guild.roles.cache.get(config.roller['Spiller']);
+  const botOw = { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.CreatePublicThreads, P.ManageThreads, P.SendMessagesInThreads, P.EmbedLinks, P.AddReactions, P.ReadMessageHistory] };
+  const staffOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.ManageThreads, P.AddReactions] }));
+  // Forslag-forum: alle kan læse, stemme og kommentere - nye forslag laves med /forslag
+  const fOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, botOw, ...staffOw,
+    ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AddReactions], deny: [P.SendMessages, P.CreatePublicThreads, P.CreatePrivateThreads] }] : [])];
+  const komm = config.kanaler.forslag && guild.channels.cache.get(config.kanaler.forslag)?.parentId;
+  await sikrForum(guild, 'forslagforum', '💡┃forslag-forum', 'Ét forslag pr. tråd. Stem med 👍 og skriv dine tanker. Lav et forslag: gå ind i #bot-kommandoer og skriv /forslag', FORSLAG_TAGS, fOw, komm || undefined);
+  // Fejlrapporter-forum: kun staff - hver fejlrapport-ticket får en tråd her
+  const fejlOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, botOw, ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.CreatePublicThreads, P.SendMessagesInThreads, P.ManageThreads] }))];
+  const staffKat = guild.channels.cache.get(config.kanaler.staffchat)?.parentId;
+  await sikrForum(guild, 'fejlforum', '🐛┃fejlrapporter', 'Alle fejlrapporter samlet. Skift tag (Ny / I gang / Løst), så alle kan se status.', FEJL_TAGS, fejlOw, staffKat || undefined);
+}
+async function opretForslagTraad(guild, sid, ign, bruger, tekst) {
+  const forum = config.kanaler.forslagforum && await guild.channels.fetch(config.kanaler.forslagforum).catch(() => null);
+  if (!forum || forum.type !== ChannelType.GuildForum) return null;
+  const traad = await forum.threads.create({ name: tekst.replace(/\s+/g, ' ').slice(0, 80) || 'Nyt forslag', appliedTags: [tagId(forum, 'Nyt')].filter(Boolean),
+    message: { embeds: [new EmbedBuilder().setColor(FARVE).setTitle('Nyt forslag!').addFields(
+      { name: 'Indsender', value: `${bruger.username} \`[${bruger.id}]\`` }, { name: 'Ingame navn', value: ign }, { name: 'Forslag', value: tekst.slice(0, 1000) })
+      .setFooter({ text: `Bruger-ID: ${bruger.id} | sID: ${sid} • ${dato()}` })] } }).catch(e => { console.error('Forslag-tråd:', e.message); return null; });
+  if (!traad) return null;
+  const start = await traad.fetchStarterMessage().catch(() => null);
+  if (start) { await start.react('✅').catch(() => {}); await start.react('❌').catch(() => {}); }
+  return traad;
+}
+async function saetForumTag(kanal, tagNavn) {
+  try {
+    if (!kanal?.isThread?.() || !kanal.parent) return;
+    const id = tagId(kanal.parent, tagNavn); if (!id) return;
+    if (kanal.archived) await kanal.setArchived(false).catch(() => {});
+    await kanal.setAppliedTags([id]);
+  } catch (e) { console.error('Forum-tag:', e.message); }
+}
+async function opretFejlTraad(guild, ticketKanal, bruger) {
+  const forum = config.kanaler.fejlforum && await guild.channels.fetch(config.kanaler.fejlforum).catch(() => null);
+  if (!forum || forum.type !== ChannelType.GuildForum) return;
+  const traad = await forum.threads.create({ name: `Fejlrapport · ${bruger.username}`.slice(0, 90), appliedTags: [tagId(forum, 'Ny')].filter(Boolean),
+    message: { content: `🐛 Ny fejlrapport fra **${bruger.username}**\nTicket: ${ticketKanal}\nSkift tag, når I går i gang eller er færdige.` } }).catch(e => { console.error('Fejl-tråd:', e.message); return null; });
+  if (traad) { config.fejltraade = config.fejltraade || {}; config.fejltraade[ticketKanal.id] = traad.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); }
+}
+async function afslutFejlTraad(guild, ticketKanalId) {
+  const tid = config.fejltraade?.[ticketKanalId]; if (!tid) return;
+  const t = await client.channels.fetch(tid).catch(() => null);
+  if (t) { await saetForumTag(t, 'Løst'); await t.send('✅ Ticketten er lukket – fejlrapporten er løst.').catch(() => {}); await t.setArchived(true).catch(() => {}); }
+  delete config.fejltraade[ticketKanalId]; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+}
+// Onboarding: nye vælger selv, hvad de vil have ping om (giver rollerne automatisk)
+async function opsaetOnboarding(guild) {
+  config.community = config.community || {};
+  if (config.community.onboarding === 2) return;
+  const rolle = n => guild.roles.cache.find(r => r.name === n)?.id;
+  const valg = [['Events', 'Events og turneringer', '🎪'], ['Giveaway', 'Giveaways', '🎁'], ['Dev-Log', 'Nyt om serveren (dev-log)', '📢']].filter(([n]) => rolle(n))
+    .map(([n, t, e]) => ({ title: t, description: `Få besked om ${t.toLowerCase()}`, emoji_name: e, role_ids: [rolle(n)], channel_ids: [] }));
+  if (!valg.length) return;
+  const k = config.kanaler;
+  const synlige = [k.velkommen, k.regler, k.serverip, k.nyheder, k.events, k.chat, k.medier, k.memes, k.botcmd].filter(id => id && guild.channels.cache.has(id));
+  const body = { enabled: true, mode: 0, default_channel_ids: synlige, prompts: [{ type: 0, title: 'Hvad vil du have besked om?', single_select: false, required: false, in_onboarding: true, options: valg }] };
+  await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, { body })
+    .then(() => { config.community.onboarding = 2; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
+    .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 synlige kanaler) – slå den til under Server Settings → Onboarding:', e.message));
+}
+// Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
+async function opsaetPynt(guild) {
+  config.pynt = config.pynt || {};
+  if (!config.pynt.emojis) {
+    await guild.emojis.fetch();
+    let n = 0;
+    for (const [navn, b64] of Object.entries(EKSTRA_DATA.emojis)) {
+      if (guild.emojis.cache.some(e => e.name === navn)) continue;
+      await guild.emojis.create({ attachment: Buffer.from(b64, 'base64'), name: navn, reason: 'HOPDOP emojis' }).then(() => n++).catch(e => console.error(`Emoji ${navn}:`, e.message));
+    }
+    config.pynt.emojis = true; console.log(`Pynt: ${n} server-emojis oprettet.`);
+  }
+  if (!config.pynt.lyde) {
+    for (const [navn, l] of Object.entries(EKSTRA_DATA.lyde)) {
+      await guild.client.rest.post(`/guilds/${guild.id}/soundboard-sounds`, { body: { name: navn, sound: `data:audio/mpeg;base64,${l.data}`, volume: 1, emoji_name: l.emoji } })
+        .then(() => console.log(`Pynt: soundboard-lyd ${navn} oprettet.`)).catch(e => console.error(`Lyd ${navn}:`, e.message));
+    }
+    config.pynt.lyde = true;
+  }
+  if (guild.premiumTier >= 2 && !config.pynt.ikoner) {
+    const ikoner = { ejer: '👑', admin: '🛡️', moderator: '🔨', mod: '🔨', helper: '💚', staff: '⭐', builder: '🏗️', streamer: '🎥' };
+    for (const r of guild.roles.cache.values()) { const e = ikoner[r.name.toLowerCase()]; if (e && !r.icon && !r.unicodeEmoji) await r.setUnicodeEmoji(e).catch(() => {}); }
+    config.pynt.ikoner = true; console.log('Pynt: rolleikoner er sat.');
+  } else if (guild.premiumTier < 2 && !config.pynt.ikoner) console.log('Pynt: rolleikoner springes over (kræver boost-niveau 2) – de sættes automatisk, når serveren når det.');
+  fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+}
+// /event: planlagt Discord-event i Event-talerummet
+async function opretEvent(i) {
+  const titel = i.options.getString('titel'), minutter = i.options.getInteger('starter_om'), varighed = i.options.getInteger('varighed') || 60;
+  const type = i.options.getString('type') || 'Event', besk = i.options.getString('beskrivelse') || `${type} på HopDop! Kom og vær med – join Event-talerummet, når det starter.`;
+  const rum = i.guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === EVENT_RUM);
+  if (!rum) return i.reply({ content: 'Fandt ikke Event-talerummet.', flags: MessageFlags.Ephemeral });
+  const start = new Date(Date.now() + minutter * 60000), slut = new Date(start.getTime() + varighed * 60000);
+  const ev = await i.guild.scheduledEvents.create({ name: `${type === 'Event' ? '🎪' : type === 'KOTH' ? '👑' : type === 'Giveaway' ? '🎁' : '🏆'} ${titel}`.slice(0, 100), scheduledStartTime: start, scheduledEndTime: slut,
+    privacyLevel: 2, entityType: 2, channel: rum.id, description: besk.slice(0, 1000), reason: `Event af ${i.user.username}` }).catch(e => { console.error('Event:', e.message); return null; });
+  if (!ev) return i.reply({ content: 'Kunne ikke oprette eventet. Botten mangler måske rettigheden **Manage Events**.', flags: MessageFlags.Ephemeral });
+  const kanal = config.kanaler.events && await i.guild.channels.fetch(config.kanaler.events).catch(() => null);
+  if (kanal) sendPing(kanal, 'Events', { content: undefined, embeds: [new EmbedBuilder().setColor(0xfbbf24).setTitle(`🎪 Nyt event: ${titel}`).setDescription(`${besk}\n\n⏰ Starter <t:${Math.floor(start.getTime() / 1000)}:R> (<t:${Math.floor(start.getTime() / 1000)}:t>)\n🔊 ${rum}\n➡️ Tryk **Interesseret** på eventet: ${ev.url}`)] }).catch(() => {});
+  return i.reply({ content: `✅ Eventet er oprettet: ${ev.url}`, flags: MessageFlags.Ephemeral });
+}
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -1071,13 +1188,13 @@ const VENTE_RUM = '⏳┃Afventer support';
 const PRIVAT_KAT = '[ 🔐 ] PRIVATE RUM';
 const PRIVAT_KANAL = '🔐┃opret-privat-rum';
 const TILKALD_KANAL = '🔔┃support-afventer';
-const TALE_NAVNE = { '🔊 Lounge': '🔊 Snakkerum 1', '💬┃Hyggesnak': '🔊 Snakkerum 1', '🔊 Snak': '🔊 Snakkerum 1',
-  '🎮 Duo 1': '🔊 Snakkerum 2', '🎮┃Makkerrum 1': '🔊 Snakkerum 2', '🎮 Gaming 1': '🔊 Snakkerum 2',
-  '🎮 Duo 2': '🔊 Snakkerum 3', '🎮┃Makkerrum 2': '🔊 Snakkerum 3', '🎮 Gaming 2': '🔊 Snakkerum 3',
-  '🎪┃Eventrum': '🎪 Event' };
+const TALE_NAVNE = {};
+for (const [nyt, gamle] of [['💬┃Hyggesnak 1', ['🔊 Lounge', '💬┃Hyggesnak', '🔊 Snak', '🔊 Snakkerum 1', '🔊┃Snakkerum 1']],
+  ['💬┃Hyggesnak 2', ['🎮 Duo 1', '🎮┃Makkerrum 1', '🎮 Gaming 1', '🔊 Snakkerum 2']], ['💬┃Hyggesnak 3', ['🎮 Duo 2', '🎮┃Makkerrum 2', '🎮 Gaming 2', '🔊 Snakkerum 3']],
+  ['🎪┃Event', ['🎪 Event', '🎪┃Eventrum']]]) for (const g of gamle) TALE_NAVNE[g] = nyt;
 const GAMLE_NAVNE = TALE_NAVNE;
-const EVENT_RUM = '🎪 Event';
-const EVENT_PODIUM = '🎤 Event-podium';
+const EVENT_RUM = '🎪┃Event';
+const EVENT_PODIUM = '🎤┃Event-podium';
 // Normale navne til talekanalerne + Event og Event-podium (til staff) øverst i kategorien
 async function opsaetTaleNavne(guild) {
   await guild.channels.fetch();
@@ -1098,7 +1215,8 @@ async function opsaetTaleNavne(guild) {
   // Podium: rigtig Stage-kanal. Staff (moderatorer) starter scenen og inviterer op; alle andre lytter og kan række hånden op.
   const modOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.Connect, P.Speak, P.MoveMembers, P.MuteMembers, P.ManageChannels, P.RequestToSpeak] }));
   const podOw = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.RequestToSpeak], deny: [P.Speak] }, ...modOw];
-  let pod = guild.channels.cache.find(c => c.name === EVENT_PODIUM && c.type === ChannelType.GuildStageVoice);
+  let pod = guild.channels.cache.find(c => (c.name === EVENT_PODIUM || c.name === '🎤 Event-podium') && c.type === ChannelType.GuildStageVoice);
+  if (pod && pod.name !== EVENT_PODIUM) await pod.setName(EVENT_PODIUM).catch(() => {});
   const gammelPod = guild.channels.cache.find(c => c.name === EVENT_PODIUM && c.type !== ChannelType.GuildStageVoice);
   if (gammelPod) await gammelPod.delete('Erstattes af rigtig Stage-kanal').catch(() => {});
   if (!pod) pod = await guild.channels.create({ name: EVENT_PODIUM, type: ChannelType.GuildStageVoice, parent: kat, permissionOverwrites: podOw })
@@ -1152,6 +1270,9 @@ async function opsaetSupport(guild) {
   await engangsOprydning(guild);
   await opsaetTaleNavne(guild);
   await opsaetCommunity(guild);
+  await opsaetForummer(guild);
+  await opsaetOnboarding(guild);
+  await opsaetPynt(guild);
   // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
   if (config.layoutVersion !== LAYOUT_VERSION) {
     const r = await layoutAnvend(guild).catch(e => { console.error('Layout:', e.message); return null; });
@@ -1284,7 +1405,7 @@ const LAYOUT = [
   { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus'] },
   { navn: '[ 🌟 ] COMMUNITY', gamle: ['💬 COMMUNITY'], kanaler: ['forslag', 'giveaways', 'leaderboards', 'boosts'] },
   { navn: '[ 💬 ] TEKST KANALER', gamle: [], kanaler: ['chat', 'medier', 'memes', 'botcmd'] },
-  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🎪 Event', '🎤 Event-podium', '🔊 Snak', '🎮 Gaming 1', '🎮 Gaming 2', '🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
+  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🎪┃Event', '🎤┃Event-podium', '💬┃Hyggesnak 1', '💬┃Hyggesnak 2', '💬┃Hyggesnak 3', '🎪 Event', '🎤 Event-podium', '🔊 Snak', '🎮 Gaming 1', '🎮 Gaming 2', '🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
   { navn: PRIVAT_KAT, gamle: [], noegle: 'privatkat', kanaler: ['privatkanal'] },
   { navn: '[ 🎫 ] TICKETS & SUPPORT', gamle: ['🎫 SUPPORT'], noegle: 'support', kanaler: ['ticket', 'fejl', 'ansog', 'tilkald', VENTE_RUM, ...SUPPORT_RUM] },
 ];
@@ -2023,6 +2144,13 @@ const kommandoer = [
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Test til (staff tæller med)', value: 'til' }, { name: 'Test fra', value: 'fra' }, { name: 'Status', value: 'status' }))
     .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('event').setDescription('Opret et planlagt event i Discord (staff)')
+    .addStringOption(o => o.setName('titel').setDescription('Eventets navn, fx KOTH-turnering').setRequired(true))
+    .addIntegerOption(o => o.setName('starter_om').setDescription('Starter om hvor mange minutter?').setRequired(true).setMinValue(5).setMaxValue(60 * 24 * 14))
+    .addStringOption(o => o.setName('type').setDescription('Hvilken slags event?').addChoices({ name: 'Event', value: 'Event' }, { name: 'KOTH', value: 'KOTH' }, { name: 'Giveaway', value: 'Giveaway' }, { name: 'Turnering', value: 'Turnering' }))
+    .addIntegerOption(o => o.setName('varighed').setDescription('Hvor mange minutter varer det? (standard 60)').setMinValue(5).setMaxValue(720))
+    .addStringOption(o => o.setName('beskrivelse').setDescription('Kort beskrivelse (valgfri)'))
+    .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('censur').setDescription('Slå censur (grove ord som spoilers) til eller fra')
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Slå til', value: 'til' }, { name: 'Slå fra (vis ordene)', value: 'fra' }, { name: 'Status', value: 'status' }))
@@ -2163,6 +2291,12 @@ client.on('interactionCreate', async i => {
       const ign = i.fields.getTextInputValue('ign').trim();
       const tekst = i.fields.getTextInputValue('tekst').trim();
       const sid = lavSid();
+      const traad = await opretForslagTraad(i.guild, sid, ign, i.user, tekst);
+      if (traad) {
+        const d = hentForslag(); d[sid] = { msg: traad.id, kanal: traad.id, user: i.user.id, ign, tekst }; gemForslag(d);
+        forslagCd.set(i.user.id, Date.now());
+        return i.reply({ content: `✅ Dit forslag er sendt til ${traad}. (sID: \`${sid}\`)`, flags: MessageFlags.Ephemeral });
+      }
       const kanal = i.guild.channels.cache.get(config.kanaler.forslag);
       if (!kanal) return i.reply({ content: 'Forslagskanalen findes ikke.', flags: MessageFlags.Ephemeral });
       const msg = await kanal.send({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('Nyt forslag!')
@@ -2208,13 +2342,14 @@ client.on('interactionCreate', async i => {
         const d = hentForslag();
         const f = d[sid];
         if (!f) return i.reply({ content: 'Fandt ikke et forslag med det sID.', flags: MessageFlags.Ephemeral });
-        const kanal = i.guild.channels.cache.get(f.kanal || config.kanaler.forslag);
-        const msg = await kanal.messages.fetch(f.msg).catch(() => null);
+        const kanal = await client.channels.fetch(f.kanal || config.kanaler.forslag).catch(() => null);
+        const msg = kanal && await kanal.messages.fetch(f.msg).catch(() => null);
         if (!msg) return i.reply({ content: 'Forslagsbeskeden er slettet.', flags: MessageFlags.Ephemeral });
         const emb = EmbedBuilder.from(msg.embeds[0]).setColor(ok ? 0x22c55e : 0xef4444)
           .setTitle(ok ? '✅ Forslag godkendt' : '❌ Forslag afvist')
           .addFields({ name: `${ok ? 'Godkendt' : 'Afvist'} af ${i.user.username}`, value: svar || 'Ingen begrundelse.' });
         await msg.edit({ embeds: [emb] });
+        await saetForumTag(kanal, ok ? 'Godkendt' : 'Afvist');
         f.status = ok ? 'godkendt' : 'afvist'; gemForslag(d);
         const bruger = await client.users.fetch(f.user).catch(() => null);
         if (bruger) bruger.send(`Dit forslag er blevet **${ok ? 'godkendt' : 'afvist'}**: "${f.tekst.slice(0, 200)}"${svar ? `\nBegrundelse: ${svar}` : ''}`).catch(() => {});
@@ -2283,6 +2418,10 @@ client.on('interactionCreate', async i => {
         if (!i.memberPermissions?.has(P.Administrator)) return i.reply({ content: 'Kun admins kan bruge den.', flags: MessageFlags.Ephemeral });
         const h = i.options.getString('handling'); if (h === 'til') samtaleTest = true; else if (h === 'fra') samtaleTest = false;
         return i.reply({ flags: MessageFlags.Ephemeral, content: `💬 Samtale-vagt test er **${samtaleTest ? 'TIL' : 'FRA'}**.\n${samtaleTest ? 'Staff tæller nu med, så du kan teste: skriv ca. 12 beskeder frem og tilbage med en anden i #medier, #memes eller #bot-kommandoer. Husk at slå testen fra bagefter (den slås også fra ved genstart).' : 'Staff er undtaget.'}\nVagten kigger kun i medier, memes og bot-kommandoer – ikke i #chat.` });
+      }
+      if (i.commandName === 'event') {
+        if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan oprette events.', flags: MessageFlags.Ephemeral });
+        return opretEvent(i);
       }
       if (i.commandName === 'censur') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan styre censuren.', flags: MessageFlags.Ephemeral });
@@ -2422,6 +2561,7 @@ client.on('interactionCreate', async i => {
             : 'Beskriv dit problem så detaljeret som muligt, så hjælper en fra staff dig snarest.\n') + 'Når I er færdige, tryk på knappen for at lukke ticketten.')],
         components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))],
       });
+      if (type === 'bug') opretFejlTraad(i.guild, kanal, i.user);
       opdaterAktive(i.guild);
       return i.reply({ content: `Din ticket er oprettet: ${kanal}`, flags: MessageFlags.Ephemeral });
     }
@@ -2435,6 +2575,7 @@ client.on('interactionCreate', async i => {
       if (log) log.send({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('📁 Ticket lukket')
         .setDescription(`Kanal: **${i.channel.name}**\nEjer: <@${ejerId}>\nLukket af: ${i.user}${udskrift ? `\nBeskeder: **${udskrift.antal}**` : '\n⚠️ Udskriften kunne ikke gemmes.'}`)],
         components: udskrift ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Se samtalen').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(udskrift.link))] : [] }).catch(() => {});
+      afslutFejlTraad(i.guild, i.channel.id);
       setTimeout(() => i.channel.delete().catch(() => {}).then(() => opdaterAktive(i.guild)), 5000);
     }
   } catch (e) {
