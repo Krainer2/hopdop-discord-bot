@@ -1062,12 +1062,20 @@ async function opsaetTaleNavne(guild) {
   const aabent = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.Speak] }, ...staffOw];
   let ev = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === EVENT_RUM);
   if (!ev) ev = await guild.channels.create({ name: EVENT_RUM, type: ChannelType.GuildVoice, parent: kat, permissionOverwrites: aabent }).catch(e => { console.error('Event-rum:', e.message); return null; });
-  // Podiet er fjernet for nu - slet det, hvis det blev oprettet tidligere
-  for (const c of guild.channels.cache.values()) if (c.name === EVENT_PODIUM) await c.delete('Podium fjernet for nu').catch(() => {});
+  // Podium: rigtig Stage-kanal. Staff (moderatorer) starter scenen og inviterer op; alle andre lytter og kan række hånden op.
+  const modOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.Connect, P.Speak, P.MoveMembers, P.MuteMembers, P.ManageChannels, P.RequestToSpeak] }));
+  const podOw = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.RequestToSpeak], deny: [P.Speak] }, ...modOw];
+  let pod = guild.channels.cache.find(c => c.name === EVENT_PODIUM && c.type === ChannelType.GuildStageVoice);
+  const gammelPod = guild.channels.cache.find(c => c.name === EVENT_PODIUM && c.type !== ChannelType.GuildStageVoice);
+  if (gammelPod) await gammelPod.delete('Erstattes af rigtig Stage-kanal').catch(() => {});
+  if (!pod) pod = await guild.channels.create({ name: EVENT_PODIUM, type: ChannelType.GuildStageVoice, parent: kat, permissionOverwrites: podOw })
+    .catch(e => { console.error('Event-podium (kræver at Community er slået til):', e.message); return null; });
+  else await pod.permissionOverwrites.set(podOw).catch(() => {});
   if (ev && ev.parentId !== kat) await ev.setParent(kat, { lockPermissions: false }).catch(() => {});
-  const poser = [ev].filter(Boolean).map((c, i) => ({ channel: c.id, position: i }));
+  if (pod && pod.parentId !== kat) await pod.setParent(kat, { lockPermissions: false }).catch(() => {});
+  const poser = [ev, pod].filter(Boolean).map((c, i) => ({ channel: c.id, position: i }));
   await guild.channels.setPositions(poser).catch(e => console.error('Tale-rækkefølge:', e.message));
-  console.log('Talekanaler: Snakkerum 1-3 og Event øverst.');
+  console.log('Talekanaler: Event og Event-podium (Stage) øverst.');
 }
 const AKTIVE_KAT = '🎫 AKTIVE TICKETS';
 const AKTIVE_KANAL = '📋┃aktive-tickets';
