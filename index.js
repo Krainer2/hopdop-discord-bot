@@ -1012,6 +1012,7 @@ async function opsaetSupport(guild) {
       components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('tilkald').setLabel('Tilkald staff').setEmoji('🔔').setStyle(ButtonStyle.Success))],
     });
   }
+  await opsaetStaffKanaler(guild);
   // Screenshare: kun dem med rollen (staff + midlertidigt), alle andre mister Stream-rettigheden
   await opsaetScreenshare(guild);
   // Staff-kategori med liste over aktive tickets
@@ -1068,7 +1069,8 @@ client.on('voiceStateUpdate', async (gl, ny) => {
   if (gl.channelId === ny.channelId) return;
   const rum = ny.channel && ny.channel.name === VENTE_RUM ? ny.channel : null;
   if (rum && !ny.member.user.bot) {
-    const k = config.kanaler.aktive && await ny.guild.channels.fetch(config.kanaler.aktive).catch(() => null);
+    const alarmId = config.kanaler.alarmer || config.kanaler.aktive;
+    const k = alarmId ? await ny.guild.channels.fetch(alarmId).catch(() => null) : null;
     const besked = await k?.send({ content: `🔔 ${ny.member} venter i ${rum} – træk dem ned i et support-rum.`, allowedMentions: { parse: [] } }).catch(() => null);
     if (besked) setTimeout(() => besked.delete().catch(() => {}), 10 * 60000);
   }
@@ -1117,7 +1119,8 @@ const tilkaldCooldown = new Map(); // brugerId -> sidste gang
 const TILKALD_VENT = 5 * 60000;
 async function tilkaldStaff(i, grund) {
   const guild = i.guild;
-  const kanal = await guild.channels.fetch(config.kanaler.aktive).catch(() => null) || i.channel;
+  const alarmId = config.kanaler.alarmer || config.kanaler.aktive;
+  const kanal = (alarmId ? await guild.channels.fetch(alarmId).catch(() => null) : null) || i.channel;
   const roller = ['Hjælper', 'Mod', 'Admin'].map(n => guild.roles.cache.find(r => r.name === n)).filter(Boolean);
   for (const r of roller) await r.setMentionable(true).catch(() => {});
   try {
@@ -1182,6 +1185,40 @@ async function layoutFortryd(guild) {
   for (const id of b.oprettet) { const k = guild.channels.cache.get(id); if (k && !guild.channels.cache.some(c => c.parentId === id)) await k.delete().catch(() => {}); }
   fs.renameSync(LAYOUT_BACKUP, `layout-fortrudt-${Date.now()}.json`);
   return { kanaler: poster.length };
+}
+// ================= FLERE STAFF-KANALER =================
+const STAFF_KANALER = [
+  { noegle: 'staffnyheder', navn: '📢┃staff-nyheder', topic: 'Nyt til staff: ændringer, beslutninger og information. Kun Ejer og Admin skriver her.', skriv: ['Ejer', 'Admin'],
+    emb: ['📢 Staff-nyheder', 'Her skriver Ejer og Admin, når der er nyt til holdet: ændringer, beslutninger og vigtig information.'] },
+  { noegle: 'staffregler', navn: '📜┃staff-regler', topic: 'Reglerne for staff. Kun Ejer og Admin skriver her.', skriv: ['Ejer', 'Admin'],
+    emb: ['📜 Regler for staff', ['**1.** Vær venlig og hjælpsom over for alle spillere.', '**2.** Brug aldrig dine rettigheder til egen fordel.', '**3.** Giv straffe efter /straf-grundene, og skriv altid en grund.', '**4.** Del aldrig private oplysninger om spillere eller serveren.', '**5.** Er du i tvivl, så spørg en Admin før du handler.', '**6.** Svar på tilkaldelser i #support-alarmer, så hurtigt du kan.'].join('\n')] },
+  { noegle: 'alarmer', navn: '🚨┃support-alarmer', topic: 'Her kommer besked, når en spiller tilkalder staff eller venter i Afventer support.', skriv: [],
+    emb: ['🚨 Support-alarmer', 'Når en spiller tilkalder staff, eller venter i **⏳┃Afventer support**, kommer det her. Træk spilleren ned i et support-rum for at hjælpe.'] },
+  { noegle: 'staffcmd', navn: '🛠┃staff-kommandoer', topic: 'Brug staff-kommandoerne her (/cc, /screenshare, /ban m.fl.).', skriv: STAFF_NAVNE_ALLE(),
+    emb: null },
+  { noegle: 'staffforslag', navn: '💡┃staff-forslag', topic: 'Idéer og forslag til serveren og Discorden fra staff.', skriv: STAFF_NAVNE_ALLE(), emb: null },
+];
+function STAFF_NAVNE_ALLE() { return ['Ejer', 'Admin', 'Mod', 'Hjælper']; }
+async function opsaetStaffKanaler(guild) {
+  await guild.roles.fetch();
+  const parent = (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
+  const rolle = n => guild.roles.cache.find(r => r.name === n);
+  for (const sk of STAFF_KANALER) {
+    let k = config.kanaler[sk.noegle] && await guild.channels.fetch(config.kanaler[sk.noegle]).catch(() => null);
+    const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory] }];
+    for (const n of STAFF_NAVNE_ALLE()) {
+      const r = rolle(n); if (!r) continue;
+      const skriver = sk.skriv.includes(n);
+      ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory, ...(skriver ? [P.SendMessages, P.AddReactions] : [])], deny: skriver ? [] : [P.SendMessages] });
+    }
+    if (!k) {
+      k = await guild.channels.create({ name: sk.navn, type: ChannelType.GuildText, parent: parent || undefined, topic: sk.topic, permissionOverwrites: ow }).catch(e => { console.error(`${sk.navn}:`, e.message); return null; });
+      if (!k) continue;
+      config.kanaler[sk.noegle] = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+      console.log(`${sk.navn} er oprettet.`);
+    } else await k.permissionOverwrites.set(ow).catch(() => {});
+    if (sk.emb) await opdaterPanel(k, sk.emb[0], { embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(sk.emb[0]).setDescription(sk.emb[1])] });
+  }
 }
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
 // Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
