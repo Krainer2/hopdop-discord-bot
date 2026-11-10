@@ -1021,6 +1021,11 @@ async function opsaetSupport(guild) {
   await opsaetStaffTale(guild);
   await opsaetPrivat(guild);
   await engangsOprydning(guild);
+  // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
+  if (config.layoutVersion !== LAYOUT_VERSION) {
+    const r = await layoutAnvend(guild).catch(e => { console.error('Layout:', e.message); return null; });
+    if (r) { config.layoutVersion = LAYOUT_VERSION; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log(`Layout: ${r.flyttet} kanaler er opdelt i ${r.kategorier} kategorier.`); }
+  }
   // Screenshare: kun dem med rollen (staff + midlertidigt), alle andre mister Stream-rettigheden
   await opsaetScreenshare(guild);
   // Staff-kategori med liste over aktive tickets
@@ -1141,6 +1146,7 @@ async function tilkaldStaff(i, grund) {
 }
 // ================= LAYOUT: opdel kanalerne i pæne kategorier (/layout anvend | fortryd) =================
 const LAYOUT_BACKUP = 'layout-backup.json';
+const LAYOUT_VERSION = 3;
 // Kategorier i rækkefølge (staff-kategorierne røres ikke). "gamle" = navne den kan have i forvejen. "kanaler" = nøgler i config.json eller navne på talekanaler.
 const LAYOUT = [
   { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
