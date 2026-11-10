@@ -1020,6 +1020,7 @@ async function opsaetSupport(guild) {
   await opsaetAdmin(guild);
   await opsaetStaffTale(guild);
   await opsaetPrivat(guild);
+  await engangsOprydning(guild);
   // Screenshare: kun dem med rollen (staff + midlertidigt), alle andre mister Stream-rettigheden
   await opsaetScreenshare(guild);
   // Staff-kategori med liste over aktive tickets
@@ -1207,7 +1208,8 @@ const STAFF_KANALER = [
     emb: ['🚨 Support-alarmer', 'Når en spiller tilkalder staff, eller venter i **⏳┃Afventer support**, kommer det her. Træk spilleren ned i et support-rum for at hjælpe.'] },
   { noegle: 'staffcmd', navn: '🛠┃staff-kommandoer', topic: 'Brug staff-kommandoerne her (/cc, /screenshare, /ban m.fl.).', skriv: STAFF_NAVNE_ALLE(),
     emb: null },
-  { noegle: 'staffforslag', navn: '💡┃staff-forslag', topic: 'Idéer og forslag til serveren og Discorden fra staff.', skriv: STAFF_NAVNE_ALLE(), emb: null },
+  { noegle: 'staffforslag', navn: '💡┃staff-forslag', topic: 'Forslag fra staff. Lav et forslag med /staffforslag (i #staff-kommandoer) og stem med reaktioner.', skriv: [], reager: true,
+    emb: ['💡 Sådan laver du et staff-forslag', 'Skriv **/staffforslag** (i #staff-kommandoer) for at lave et forslag.\nHer i kanalen stemmer staff med reaktioner. Ejer og Admin svarer med **/godkend** og **/afvis**.'] },
 ];
 function STAFF_NAVNE_ALLE() { return ['Ejer', 'Admin', 'Mod', 'Hjælper']; }
 async function opsaetStaffKanaler(guild) {
@@ -1220,7 +1222,7 @@ async function opsaetStaffKanaler(guild) {
     for (const n of STAFF_NAVNE_ALLE()) {
       const r = rolle(n); if (!r) continue;
       const skriver = sk.skriv.includes(n);
-      ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory, ...(skriver ? [P.SendMessages, P.AddReactions] : [])], deny: skriver ? [] : [P.SendMessages] });
+      ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory, ...(skriver || sk.reager ? [P.AddReactions] : []), ...(skriver ? [P.SendMessages] : [])], deny: skriver ? [] : [P.SendMessages] });
     }
     if (!k) {
       k = await guild.channels.create({ name: sk.navn, type: ChannelType.GuildText, parent: parent || undefined, topic: sk.topic, permissionOverwrites: ow }).catch(e => { console.error(`${sk.navn}:`, e.message); return null; });
@@ -1318,7 +1320,7 @@ async function opsaetPrivat(guild) {
   config.kanaler.privatkanal = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
   const opret = await opdaterPanel(k, '🔐 Private rum', {
     embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🔐 Private rum')
-      .setDescription('Lav dit eget talerum, hvor kun dem du giver adgang kan joine.\n\n**1.** Tryk på **Opret privat rum**, og vælg et navn og hvor mange pladser (2-25).\n**2.** Andre kan se rummet, men skal trykke **Bed om adgang** på dit rum herunder.\n**3.** Du får en besked, hvor du kan sige ja eller nej.\n\nRummet bliver fuldt, når pladserne er brugt, og det slettes af sig selv, når det har stået tomt i et par minutter.')],
+      .setDescription('Lav dit eget talerum, hvor kun dem du giver adgang kan joine.\n\n**1.** Tryk på **Opret privat rum**, og vælg et navn og hvor mange pladser (2-25).\n**2.** Andre kan se rummet, men skal trykke **Bed om adgang** på dit rum herunder.\n**3.** Du får en besked, hvor du kan sige ja eller nej.\n\nRummet bliver fuldt, når pladserne er brugt, og det slettes af sig selv, når der ikke har været nogen i det i 5 minutter.')],
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('privat_opret').setLabel('Opret privat rum').setEmoji('➕').setStyle(ButtonStyle.Success))],
   });
   if (opret?.pin && !opret.pinned) opret.pin().catch(() => {});
@@ -1366,7 +1368,7 @@ client.on('voiceStateUpdate', (gl, ny) => {
   for (const id of new Set([gl.channelId, ny.channelId].filter(x => x && privat[x]))) {
     opdaterPrivatPanel(ny.guild, id);
     const v = ny.guild.channels.cache.get(id);
-    if (v && v.members.size === 0) planlaegTomtRum(ny.guild, id, 3 * 60000); else clearTimeout(privatTomTimer.get(id));
+    if (v && v.members.size === 0) planlaegTomtRum(ny.guild, id, 5 * 60000); else clearTimeout(privatTomTimer.get(id));
   }
 });
 async function privatKnap(i) {
@@ -1435,9 +1437,33 @@ async function privatModal(i) {
   const k = i.guild.channels.cache.get(config.kanaler.privatkanal);
   const m = await k.send({ embeds: [privatEmbed(v, navn, i.user.id)], components: privatKnapper(v.id) });
   privat[v.id] = { ejer: i.user.id, panel: m.id, navn }; gemPrivat();
-  planlaegTomtRum(i.guild, v.id, 10 * 60000);
+  planlaegTomtRum(i.guild, v.id, 5 * 60000);
   if (i.member.voice?.channel) await i.member.voice.setChannel(v).catch(() => {});
   return i.editReply(`✅ Dit rum er klar: ${v} (${antal} pladser). Join det, og giv andre adgang, når de beder om det i <#${config.kanaler.privatkanal}>.`);
+}
+// ================= ENGANGS-OPRYDNING =================
+async function engangsOprydning(guild) {
+  if (config.oprydning2 || !config.kanaler.ansogsvar) return;
+  try {
+    // Flyt ansøgninger fra #staff-chat til #ansøgninger-afventer og slet dem i #staff-chat
+    const staff = await guild.channels.fetch(config.kanaler.staffchat).catch(() => null);
+    const mål = await guild.channels.fetch(config.kanaler.ansogsvar).catch(() => null);
+    if (staff && mål) {
+      const msgs = [...(await staff.messages.fetch({ limit: 100 })).values()].filter(m => m.author.id === client.user.id && m.embeds[0]?.author?.name?.includes('Ny ansøgning')).reverse();
+      for (const m of msgs) {
+        const ok = await mål.send({ embeds: m.embeds.map(e => e.toJSON()) }).then(() => true).catch(() => false);
+        if (ok) await m.delete().catch(() => {});
+      }
+      console.log(`${msgs.length} ansøgning(er) er flyttet til #ansøgninger-afventer.`);
+    }
+    // Fjern #mod-noter og #vagtplan
+    for (const noegle of ['modnoter', 'vagtplan']) {
+      const k = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+      if (k) { await k.delete('Fjernet efter ønske fra Ejer').catch(e => console.error(`Slet ${noegle}:`, e.message)); console.log(`#${noegle} er slettet.`); }
+      delete config.kanaler[noegle];
+    }
+    config.oprydning2 = true; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  } catch (e) { console.error('Oprydning:', e.message); }
 }
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
 // Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
@@ -1738,7 +1764,7 @@ async function opdaterGuide(guild) {
         `Giveaways · tryk **Deltag** i <#${config.kanaler.giveaways}>`,
         `Ugens top 3 · hver søndag kl. 20 i <#${config.kanaler.events}>`,
       ].join('\n') },
-      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/censur til|fra` · slå spoiler-censur af grove ord til/fra\n`/cc <antal>` · ryd de sidste beskeder i kanalen (fx `/cc 40`)\n`/say` · send en pæn besked som botten' },
+      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/staffforslag` · send et forslag i #staff-forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/censur til|fra` · slå spoiler-censur af grove ord til/fra\n`/cc <antal>` · ryd de sidste beskeder i kanalen (fx `/cc 40`)\n`/say` · send en pæn besked som botten' },
     )
     .setFooter({ text: `Stats, top og online virker kun i #bot-kommandoer · Hjemmeside: ${WEB.replace('https://', '')}` });
   const beskeder = await kanal.messages.fetch({ limit: 10 });
@@ -1768,6 +1794,8 @@ const kommandoer = [
     .addIntegerOption(o => o.setName('vindere').setDescription('Hvor mange vindere? (standard 1)').setMinValue(1).setMaxValue(10))
     .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('forslag').setDescription('Send et forslag til serveren'),
+  new SlashCommandBuilder().setName('staffforslag').setDescription('Send et forslag i #staff-forslag (staff)')
+    .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('godkend').setDescription('Godkend et forslag')
     .addStringOption(o => o.setName('sid').setDescription('Forslagets sID (står i bunden af forslaget)').setRequired(true))
     .addStringOption(o => o.setName('svar').setDescription('Valgfri begrundelse'))
@@ -1940,6 +1968,20 @@ client.on('interactionCreate', async i => {
       return i.reply({ content: `Dev-loggen er sendt i ${kanal}. 🛠️`, flags: MessageFlags.Ephemeral });
     }
 
+    // ---------- STAFF-FORSLAG: MODAL ----------
+    if (i.isModalSubmit() && i.customId === 'staffforslag_modal') {
+      const tekst = i.fields.getTextInputValue('tekst').trim();
+      const kanal = i.guild.channels.cache.get(config.kanaler.staffforslag);
+      if (!kanal) return i.reply({ content: '#staff-forslag findes ikke endnu.', flags: MessageFlags.Ephemeral });
+      const sid = lavSid();
+      const msg = await kanal.send({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('Nyt staff-forslag!')
+        .addFields({ name: 'Indsender', value: `${i.user} (${i.user.username})` }, { name: 'Forslag', value: tekst.slice(0, 1000) })
+        .setFooter({ text: `Bruger-ID: ${i.user.id} | sID: ${sid} • ${dato()}` })] });
+      await msg.react('✅'); await msg.react('❌');
+      const d = hentForslag(); d[sid] = { msg: msg.id, user: i.user.id, ign: i.user.username, tekst, kanal: kanal.id }; gemForslag(d);
+      return i.reply({ content: `✅ Dit forslag er sendt til ${kanal}. (sID: \`${sid}\`)`, flags: MessageFlags.Ephemeral });
+    }
+
     // ---------- FORSLAG: MODAL ----------
     if (i.isModalSubmit() && i.customId === 'forslag_modal') {
       const ign = i.fields.getTextInputValue('ign').trim();
@@ -1971,6 +2013,11 @@ client.on('interactionCreate', async i => {
           .catch(e => { console.error('Web-fejl:', e.message); return null; });
         return i.editReply(emb ? { embeds: [emb] } : 'Kunne ikke hente data lige nu. Prøv igen om lidt.');
       }
+      if (i.commandName === 'staffforslag') {
+        if (!erStaff(i.member)) return i.reply({ content: 'Kun staff kan bruge den.', flags: MessageFlags.Ephemeral });
+        return i.showModal(new ModalBuilder().setCustomId('staffforslag_modal').setTitle('Nyt staff-forslag').addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tekst').setLabel('Dit forslag').setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(10).setMaxLength(1000))));
+      }
       if (i.commandName === 'forslag') {
         const venter = 60000 - (Date.now() - (forslagCd.get(i.user.id) || 0));
         if (venter > 0) return i.reply({ content: `Vent ${Math.ceil(venter / 1000)} sekunder før dit næste forslag.`, flags: MessageFlags.Ephemeral });
@@ -1985,7 +2032,7 @@ client.on('interactionCreate', async i => {
         const d = hentForslag();
         const f = d[sid];
         if (!f) return i.reply({ content: 'Fandt ikke et forslag med det sID.', flags: MessageFlags.Ephemeral });
-        const kanal = i.guild.channels.cache.get(config.kanaler.forslag);
+        const kanal = i.guild.channels.cache.get(f.kanal || config.kanaler.forslag);
         const msg = await kanal.messages.fetch(f.msg).catch(() => null);
         if (!msg) return i.reply({ content: 'Forslagsbeskeden er slettet.', flags: MessageFlags.Ephemeral });
         const emb = EmbedBuilder.from(msg.embeds[0]).setColor(ok ? 0x22c55e : 0xef4444)
@@ -2094,7 +2141,7 @@ client.on('interactionCreate', async i => {
         const slettet = await i.channel.bulkDelete(i.options.getInteger('antal'), true).catch(e => { console.error('/cc:', e.message); return null; });
         if (!slettet) return i.editReply('❌ Kunne ikke rydde her. Mangler jeg rettigheden Administrer beskeder?');
         // Rydder du en kanal med et panel (ansøgninger, fejlrapporter, opret-ticket), sætter botten panelet op igen
-        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket, config.kanaler.forslag, config.kanaler.tilkald].includes(i.channelId)) {
+        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket, config.kanaler.forslag, config.kanaler.tilkald, config.kanaler.staffforslag].includes(i.channelId)) {
           const g = i.guild; opsaetRettigheder(g).catch(() => {}).then(() => opsaetSupport(g)).catch(() => {});
         }
         return i.editReply(`🧹 Ryddede **${slettet.size}** ${slettet.size === 1 ? 'besked' : 'beskeder'}.${slettet.size < i.options.getInteger('antal') ? '\n(Beskeder ældre end 14 dage kan Discord ikke slette i bulk.)' : ''}`);
