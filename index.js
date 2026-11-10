@@ -1038,7 +1038,10 @@ const VENTE_RUM = '⏳┃Afventer support';
 const PRIVAT_KAT = '[ 🔐 ] PRIVATE RUM';
 const PRIVAT_KANAL = '🔐┃opret-privat-rum';
 const TILKALD_KANAL = '🔔┃support-afventer';
-const TALE_NAVNE = { '🔊 Lounge': '🔊 Snak', '💬┃Hyggesnak': '🔊 Snak', '🎮 Duo 1': '🎮 Gaming 1', '🎮┃Makkerrum 1': '🎮 Gaming 1', '🎮 Duo 2': '🎮 Gaming 2', '🎮┃Makkerrum 2': '🎮 Gaming 2', '🎪 Event': '🎪 Event', '🎪┃Eventrum': '🎪 Event' };
+const TALE_NAVNE = { '🔊 Lounge': '🔊 Snakkerum 1', '💬┃Hyggesnak': '🔊 Snakkerum 1', '🔊 Snak': '🔊 Snakkerum 1',
+  '🎮 Duo 1': '🔊 Snakkerum 2', '🎮┃Makkerrum 1': '🔊 Snakkerum 2', '🎮 Gaming 1': '🔊 Snakkerum 2',
+  '🎮 Duo 2': '🔊 Snakkerum 3', '🎮┃Makkerrum 2': '🔊 Snakkerum 3', '🎮 Gaming 2': '🔊 Snakkerum 3',
+  '🎪┃Eventrum': '🎪 Event' };
 const GAMLE_NAVNE = TALE_NAVNE;
 const EVENT_RUM = '🎪 Event';
 const EVENT_PODIUM = '🎤 Event-podium';
@@ -1059,18 +1062,12 @@ async function opsaetTaleNavne(guild) {
   const aabent = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.Speak] }, ...staffOw];
   let ev = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === EVENT_RUM);
   if (!ev) ev = await guild.channels.create({ name: EVENT_RUM, type: ChannelType.GuildVoice, parent: kat, permissionOverwrites: aabent }).catch(e => { console.error('Event-rum:', e.message); return null; });
-  // Podium: scene hvor staff taler og alle andre lytter (kan bede om ordet)
-  const podOw = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.RequestToSpeak], deny: [P.Speak] }, ...staffOw];
-  let pod = guild.channels.cache.find(c => (c.type === ChannelType.GuildStageVoice || c.type === ChannelType.GuildVoice) && c.name === EVENT_PODIUM);
-  if (!pod) {
-    pod = await guild.channels.create({ name: EVENT_PODIUM, type: ChannelType.GuildStageVoice, parent: kat, permissionOverwrites: podOw }).catch(() => null);
-    if (!pod) pod = await guild.channels.create({ name: EVENT_PODIUM, type: ChannelType.GuildVoice, parent: kat, permissionOverwrites: podOw }).catch(e => { console.error('Event-podium:', e.message); return null; });
-  }
+  // Podiet er fjernet for nu - slet det, hvis det blev oprettet tidligere
+  for (const c of guild.channels.cache.values()) if (c.name === EVENT_PODIUM) await c.delete('Podium fjernet for nu').catch(() => {});
   if (ev && ev.parentId !== kat) await ev.setParent(kat, { lockPermissions: false }).catch(() => {});
-  if (pod && pod.parentId !== kat) await pod.setParent(kat, { lockPermissions: false }).catch(() => {});
-  const poser = [ev, pod].filter(Boolean).map((c, i) => ({ channel: c.id, position: i }));
+  const poser = [ev].filter(Boolean).map((c, i) => ({ channel: c.id, position: i }));
   await guild.channels.setPositions(poser).catch(e => console.error('Tale-rækkefølge:', e.message));
-  console.log('Talekanaler: normale navne + Event og Event-podium øverst.');
+  console.log('Talekanaler: Snakkerum 1-3 og Event øverst.');
 }
 const AKTIVE_KAT = '🎫 AKTIVE TICKETS';
 const AKTIVE_KANAL = '📋┃aktive-tickets';
