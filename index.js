@@ -1126,23 +1126,53 @@ async function skjulAabenForSpillere(guild) {
 }
 async function opsaetOnboarding(guild) {
   config.community = config.community || {};
-  if (config.community.onboarding === 6) return;
+  if (config.community.onboarding === 7) return;
   await guild.roles.fetch();
-  // Opret ping-rollerne hvis de mangler, så spørgsmålet altid har noget at give
-  for (const [n, c] of [['Events', 0xfbbf24], ['Giveaway', 0xf472b6], ['Dev-Log', 0x4ade80]]) {
-    if (!guild.roles.cache.some(r => r.name === n)) await guild.roles.create({ name: n, color: c, mentionable: false, permissions: [], reason: 'Onboarding ping-rolle' }).catch(e => console.error('Ping-rolle ' + n + ':', e.message));
+  // [rollenavn, farve, titel, beskrivelse, emoji]
+  const SPOERGSMAAL = [
+    { titel: 'Hvad vil du have besked om?', enkelt: false, valg: [
+      ['Nyheder', 0xa855f7, 'Nyheder og opdateringer', 'Ping når der er nyt på serveren', '📢'],
+      ['Dev-Log', 0x94a3b8, 'Dev-log', 'Ping når der er nyt i #dev-log', '🛠️'],
+      ['Events', 0xfbbf24, 'Events og turneringer', 'Ping ved events og ugens top', '🎉'],
+      ['Giveaway', 0xf472b6, 'Giveaways', 'Ping ved nye giveaways', '🎁'],
+      ['Konkurrence', 0xfacc15, 'Konkurrencer', 'Ping ved konkurrencer', '🏆'] ] },
+    { titel: 'Hvilket kit spiller du mest?', enkelt: false, valg: [
+      ['Diamond-kit', 0x22d3ee, 'Diamond', 'Diamantsværd og diamantrustning', '💎'],
+      ['Rogue-kit', 0x94a3b8, 'Rogue', 'Chainmail, guldsværd og sukker', '🗡️'],
+      ['Archer-kit', 0xa16207, 'Archer', 'Læderrustning og bue', '🏹'],
+      ['Bard-kit', 0xeab308, 'Bard', 'Guldrustning, blaze powder og diamantsværd', '🎶'] ] },
+    { titel: 'Hvad er du bedst til?', enkelt: false, valg: [
+      ['Kriger', 0xef4444, 'Kriger', 'Jeg elsker PvP og at tage fights', '⚔️'],
+      ['Bygmester', 0x3b82f6, 'Bygmester', 'Jeg bygger baser og claims', '🏗️'],
+      ['Strateg', 0x8b5cf6, 'Strateg', 'Jeg planlægger raids og teamtaktik', '🧠'],
+      ['Content', 0xec4899, 'Content', 'Jeg streamer eller laver videoer', '🎥'] ] },
+    { titel: 'Hvornår spiller du helst?', enkelt: true, valg: [
+      ['Morgenfugl', 0xfb923c, 'Morgen', 'Jeg spiller før middag', '🌅'],
+      ['Eftermiddag', 0x4ade80, 'Eftermiddag', 'Jeg spiller efter skole eller arbejde', '☀️'],
+      ['Nattugle', 0x6366f1, 'Aften og nat', 'Jeg spiller sent', '🦉'] ] },
+  ];
+  const rolleId = async ([n, c]) => (guild.roles.cache.find(r => r.name === n)
+    || await guild.roles.create({ name: n, color: c, mentionable: false, hoist: false, permissions: [], reason: 'Onboarding-rolle' }).catch(e => { console.error('Onboarding-rolle ' + n + ':', e.message); return null; }))?.id;
+  let nr = 0;
+  const prompts = [];
+  for (const [pi, sp] of SPOERGSMAAL.entries()) {
+    const options = [];
+    for (const v of sp.valg) {
+      const id = await rolleId(v); if (!id) continue;
+      options.push({ id: String(1180000000000000000n + BigInt(++nr)), title: v[2], description: v[3], emoji_name: v[4], role_ids: [id], channel_ids: [] });
+    }
+    if (options.length) prompts.push({ id: String(1180000000000000100n + BigInt(pi)), type: 0, title: sp.titel, single_select: sp.enkelt, required: false, in_onboarding: true, options });
   }
-  const rolle = n => guild.roles.cache.find(r => r.name === n)?.id;
-  const valg = [['Events', 'Events og turneringer', '🎪'], ['Giveaway', 'Giveaways', '🎁'], ['Dev-Log', 'Nyt om serveren (dev-log)', '📢']].filter(([n]) => rolle(n))
-    .map(([n, t, e], i) => ({ id: String(1180000000000000000n + BigInt(i) + 1n), title: t, description: `Få besked om ${t.toLowerCase()}`, emoji_name: e, role_ids: [rolle(n)], channel_ids: [] }));
-  if (!valg.length) return;
+  const botsR = guild.roles.cache.find(r => r.name === 'Bots' && !r.managed);
+  if (botsR) await botsR.setPosition(1).catch(() => {});
+  if (!prompts.length) return;
   const k = config.kanaler;
   const aabne = await opsaetAabenKategori(guild);
   const synlige = [...aabne, k.velkommen, k.regler].filter(id => id && guild.channels.cache.has(id) && guild.channels.cache.get(id).permissionsFor(guild.roles.everyone)?.has(P.ViewChannel));
-  const body = { enabled: true, mode: 0, default_channel_ids: synlige, prompts: [{ id: '1180000000000000100', type: 0, title: 'Hvad vil du have besked om?', single_select: false, required: false, in_onboarding: true, options: valg }] };
+  const body = { enabled: true, mode: 0, default_channel_ids: synlige, prompts };
   await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, { body })
-    .then(() => { config.community.onboarding = 6; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
-    .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 standardkanaler, hvor mindst 5 kan skrives i af alle) – slå den til under Server Settings → Onboarding:', e.message));
+    .then(() => { config.community.onboarding = 7; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log(`Onboarding: ${prompts.length} spørgsmål er sat.`); })
+    .catch(e => console.log('Onboarding kunne ikke sættes automatisk – slå den til under Server Settings → Onboarding:', e.message, JSON.stringify(e.rawError?.errors || '').slice(0, 300)));
 }
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
 async function opsaetPynt(guild, tving = false) {
