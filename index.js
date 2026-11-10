@@ -3,7 +3,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, ChannelType, PermissionFlagsBits: P, EmbedBuilder, ActionRowBuilder,
-  ButtonBuilder, ButtonStyle, SlashCommandBuilder, MessageFlags, ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder } = require('discord.js');
+  ButtonBuilder, ButtonStyle, SlashCommandBuilder, MessageFlags, ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, escapeMarkdown } = require('discord.js');
 
 const FARVE = 0x3b82f6;
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
@@ -481,7 +481,7 @@ async function postDevlog() {
     let postet = []; try { postet = JSON.parse(fs.readFileSync(DEVLOG_POSTET, 'utf8')); } catch { /* første gang */ }
     for (const d of liste) {
       if (!d.id || postet.includes(d.id)) continue;
-      await kanal.send({ embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
+      await kanal.send({ content: ping(kanal.guild, 'Dev-Log') || undefined, embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
       postet.push(d.id);
     }
     fs.writeFileSync(DEVLOG_POSTET, JSON.stringify(postet.slice(-500)));
@@ -688,6 +688,206 @@ client.on('guildMemberUpdate', (gl, ny) => {
   if (!gl.premiumSince && ny.premiumSince) setTimeout(() => skrivBoost(ny.guild, ny.user), 15000);
 });
 
+// ================= BRO TIL MINECRAFT (DiscordBro.sk) =================
+// Kommandoer fra Discord sendes via hjemmesiden til serveren. Chatten ingame kommer i #live-chat.
+
+// ---------- ADGANG ("databasen"): hvilke roller må bruge hvad. Gemmes i adgang.json ----------
+const ADGANG_FIL = 'adgang.json';
+const ADGANG_KOMMANDOER = {
+  konsol: 'Kør en hvilken som helst konsol-kommando', ban: 'Ban en spiller', mute: 'Mute en spiller', kick: 'Kick en spiller',
+  unban: 'Fjern en ban', unmute: 'Fjern en mute', alts: 'Find alt-konti', genstart: 'Genstart serveren',
+  beacondrop: 'Start/stop Beacon Drop', broadcast: 'Send en broadcast', sig: 'Skriv i chatten ingame', livechat: 'Se #live-chat',
+};
+const adgang = (() => { try { return JSON.parse(fs.readFileSync(ADGANG_FIL, 'utf8')); } catch { return {}; } })();
+for (const k of Object.keys(ADGANG_KOMMANDOER)) if (!adgang[k]) adgang[k] = ['Ejer']; // kun Ejer til at starte med
+const gemAdgang = () => fs.writeFileSync(ADGANG_FIL, JSON.stringify(adgang, null, 2));
+gemAdgang();
+const erEjer = m => m.guild.ownerId === m.id || m.roles.cache.has(config.roller['Ejer']);
+const harAdgang = (m, k) => erEjer(m) || (adgang[k] || []).some(navn => m.roles.cache.some(r => r.name === navn));
+
+// ---------- Send til serveren og vent på svar ----------
+const ventSvar = new Map(); // id -> { i, tekst, timer }
+async function tilServer(i, kommando, beskrivelse) {
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  let id;
+  try { ({ id } = await postPrivat('bro', { type: 'kommando', kommando, af: i.user.username })); }
+  catch (e) { return i.editReply(`❌ Kunne ikke sende til serveren: ${e.message}`); }
+  await i.editReply(`⏳ ${beskrivelse} ... sendt til serveren, venter på svar.`);
+  const timer = setTimeout(() => {
+    ventSvar.delete(id);
+    i.editReply(`⚠️ ${beskrivelse}: sendt, men serveren har ikke svaret inden for 40 sek. Kører DiscordBro.sk?`).catch(() => {});
+  }, 40000);
+  ventSvar.set(id, { i, beskrivelse, timer });
+  logBro(i.user, kommando);
+}
+function logBro(bruger, kommando) {
+  client.channels.fetch(config.kanaler.straflog).then(k => k?.send({ embeds: [new EmbedBuilder().setColor(0x64748b)
+    .setAuthor({ name: 'HOPDOP · Kommando fra Discord' }).setDescription(`${bruger} kørte: \`${kommando.replace(/`/g, "'")}\``).setTimestamp()] })).catch(() => {});
+}
+
+// ---------- Hent chat og svar (hvert 3. sek.) ----------
+let broNr = null;
+async function liveChatKanal(guild) {
+  let k = config.kanaler.livechat && await guild.channels.fetch(config.kanaler.livechat).catch(() => null);
+  if (!k) {
+    const parent = (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
+    k = await guild.channels.create({ name: '💬┃live-chat', type: ChannelType.GuildText, parent: parent || undefined,
+      topic: 'Chatten fra Minecraft i realtid. Skriv /sig for at skrive ingame.', permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }] });
+    config.kanaler.livechat = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#live-chat er oprettet.');
+  }
+  return k;
+}
+// Kun rollerne i adgang.livechat (og Ejer) kan se #live-chat
+async function opdaterLiveChatAdgang(guild) {
+  const k = await liveChatKanal(guild);
+  const roller = new Set(['Ejer', ...(adgang.livechat || [])]);
+  const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages] }];
+  for (const navn of roller) { const r = guild.roles.cache.find(x => x.name === navn); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
+  await k.permissionOverwrites.set(ow).catch(e => console.error('#live-chat adgang:', e.message));
+}
+const klok = t => new Date(t).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit' });
+function chatLinje(c) {
+  const [type, a, ...rest] = c.tekst.split('|');
+  const b = rest.join('|');
+  const tid = `\`${klok(c.t)}\``;
+  if (type === 'C') return `${tid} **${escapeMarkdown(a)}**: ${escapeMarkdown(b)}`;
+  if (type === 'J') return `${tid} ➡️ **${escapeMarkdown(a)}** joinede`;
+  if (type === 'Q') return `${tid} ⬅️ **${escapeMarkdown(a)}** forlod serveren`;
+  if (type === 'D') return `${tid} 💀 ${escapeMarkdown(a)}`;
+  return `${tid} ${escapeMarkdown(c.tekst)}`;
+}
+async function tjekBro() {
+  if (!botNoegle()) return;
+  try {
+    const d = await hentPrivat(`bro?efter=${broNr ?? 0}`);
+    const foerste = broNr === null;
+    broNr = d.nr;
+    if (foerste) return; // gammel chat fra før botten startede vises ikke
+    for (const s of d.svar) {
+      const v = ventSvar.get(s.id);
+      if (!v) continue;
+      clearTimeout(v.timer); ventSvar.delete(s.id);
+      v.i.editReply(`✅ ${v.beskrivelse}\n> ${s.tekst}`).catch(() => {});
+    }
+    if (d.chat.length) {
+      const guild = await client.guilds.fetch(process.env.GUILD_ID);
+      const k = await liveChatKanal(guild);
+      let blok = '';
+      for (const c of d.chat) {
+        const l = chatLinje(c);
+        if ((blok + l).length > 1900) { await k.send({ content: blok, allowedMentions: { parse: [] } }); blok = ''; }
+        blok += l + '\n';
+      }
+      if (blok) await k.send({ content: blok, allowedMentions: { parse: [] } });
+    }
+  } catch (e) { if (!String(e.message).includes('fetch failed')) console.error('Bro:', e.message); }
+}
+
+// ---------- STRAF-GRUNDE (samme nøgler som i Straf.sk) ----------
+const GRUNDE = {
+  ban: { hack: 'Hack / Cheats', hate: 'Hadeforbrydelse', bug: 'Bug-misbrug', dupe: 'Duplikering', evade: 'Omgåelse af straf (alt)', scam: 'Svindel', threat: 'Trusler / DDoS', team: 'Ulovlig alliance', dox: 'Deling af persondata', claim: 'Misbrug af claim', custom: 'Skriv selv (vælg tid)' },
+  mute: { racism: 'Racisme', spam: 'Spam', ad: 'Reklame', lang: 'Sprog', provo: 'Provokerende', threat: 'Trusler', bully: 'Mobning / Chikane', staff: 'Respektløs mod staff', caps: 'Caps / Chat-misbrug', custom: 'Skriv selv (vælg tid)' },
+  kick: { provo: 'Provokerende adfærd', pause: 'Tag en pause', warn: 'Advarsel', afk: 'AFK / Inaktiv', rules: 'Regelbrud', ad: 'Reklame', custom: 'Skriv selv' },
+};
+const MC_NAVN = /^[A-Za-z0-9_]{1,16}$/;
+
+// ---------- BOT-LOGO ----------
+async function saetBotLogo() {
+  const V = 1;
+  config.grafik = config.grafik || {};
+  if (config.grafik.botlogo === V || !fs.existsSync('assets/bot-logo.png')) return;
+  await client.user.setAvatar('assets/bot-logo.png').then(() => { config.grafik.botlogo = V; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Bot-logo er sat.'); })
+    .catch(e => console.error('Bot-logo:', e.message));
+}
+
+// ================= ROLLER MED SKILLELINJER (roller.json) =================
+// Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
+// til alle der har en rolle i gruppen, og giver roller ud fra "tildel" (Discord-brugernavn -> roller).
+const ROLLER_FIL = 'roller.json';
+let rollerTid = 0, rollerData = null;
+const skilleNavn = t => `────── ${t} ──────`;
+const rolleNavn = r => (typeof r === 'string' ? r : r.navn);
+async function synkRollerFil(tving = false) {
+  try {
+    const mt = fs.statSync(ROLLER_FIL).mtimeMs;
+    if (!tving && mt === rollerTid) return;
+    rollerTid = mt;
+    rollerData = JSON.parse(fs.readFileSync(ROLLER_FIL, 'utf8'));
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    await guild.roles.fetch();
+    const findEllerLav = async (navn, opts) => guild.roles.cache.find(r => r.name === navn)
+      || await guild.roles.create({ name: navn, permissions: [], mentionable: false, ...opts, reason: 'HOPDOP roller.json' }).then(r => { devlogDiscord(`🏷️ Ny rolle: <@&${r.id}>`); return r; });
+    // 1) Opret roller og skillelinjer, og saml rækkefølgen
+    const raekke = [];
+    for (const g of rollerData.grupper) {
+      raekke.push(await findEllerLav(skilleNavn(g.skille), { color: 0x2b2d31, hoist: false }));
+      for (const r of g.roller) raekke.push(await findEllerLav(rolleNavn(r), { mentionable: !!g.vaelg }));
+    }
+    // 2) Sæt rækkefølgen lige under botten
+    const top = guild.members.me.roles.highest.position;
+    const pos = raekke.filter(r => r.position < top).map((r, idx, arr) => ({ role: r.id, position: top - 1 - idx }));
+    await guild.roles.setPositions(pos).catch(e => console.error('Rækkefølge af roller:', e.message));
+    // 3) Giv roller fra "tildel"
+    const medlemmer = await guild.members.fetch();
+    for (const [navn, roller] of Object.entries(rollerData.tildel || {})) {
+      if (navn.startsWith('_')) continue;
+      const m = medlemmer.find(x => x.user.username.toLowerCase() === navn.toLowerCase() || x.displayName.toLowerCase() === navn.toLowerCase());
+      if (!m) { console.log(`roller.json: fandt ikke "${navn}" på Discorden`); continue; }
+      for (const rn of roller) { const r = guild.roles.cache.find(x => x.name === rn); if (r && !m.roles.cache.has(r.id)) await m.roles.add(r, 'roller.json').catch(e => console.error('Rolle:', e.message)); }
+    }
+    await synkSkillelinjer(guild, medlemmer);
+    await opdaterRolleVaelger(guild);
+    console.log('Roller er synket fra roller.json.');
+  } catch (e) { console.error('roller.json:', e.message); }
+}
+// Skillelinjen i en gruppe gives til alle, der har mindst én rolle i gruppen
+async function synkSkillelinjer(guild, medlemmer) {
+  if (!rollerData) return;
+  medlemmer = medlemmer || await guild.members.fetch();
+  for (const g of rollerData.grupper) {
+    const skille = guild.roles.cache.find(r => r.name === skilleNavn(g.skille));
+    if (!skille) continue;
+    const ids = g.roller.map(r => guild.roles.cache.find(x => x.name === rolleNavn(r))?.id).filter(Boolean);
+    for (const m of medlemmer.values()) {
+      if (m.user.bot) continue;
+      const skal = m.roles.cache.some(r => ids.includes(r.id));
+      if (skal && !m.roles.cache.has(skille.id)) await m.roles.add(skille).catch(() => {});
+      if (!skal && m.roles.cache.has(skille.id)) await m.roles.remove(skille).catch(() => {});
+    }
+  }
+}
+client.on('guildMemberUpdate', (gl, ny) => {
+  if (!rollerData || gl.roles.cache.size === ny.roles.cache.size && gl.roles.cache.every(r => ny.roles.cache.has(r.id))) return;
+  for (const g of rollerData.grupper) {
+    const skille = ny.guild.roles.cache.find(r => r.name === skilleNavn(g.skille));
+    if (!skille) continue;
+    const ids = g.roller.map(r => ny.guild.roles.cache.find(x => x.name === rolleNavn(r))?.id).filter(Boolean);
+    const skal = ny.roles.cache.some(r => ids.includes(r.id));
+    if (skal && !ny.roles.cache.has(skille.id)) ny.roles.add(skille).catch(() => {});
+    if (!skal && ny.roles.cache.has(skille.id)) ny.roles.remove(skille).catch(() => {});
+  }
+});
+
+// #roller: spillerne vælger selv notifikationsroller med knapper
+async function opdaterRolleVaelger(guild) {
+  const g = (rollerData?.grupper || []).find(x => x.vaelg);
+  if (!g) return;
+  const kanal = await sikrKanal(guild, 'roller', '🔔┃roller', 'Vælg selv hvad du vil have ping om', config.kanaler.velkommen);
+  const emb = new EmbedBuilder().setColor(LILLA).setAuthor({ name: 'HOPDOP · Roller' })
+    .setTitle('🔔 Vælg dine notifikationer')
+    .setDescription(['Tryk på en knap for at få eller fjerne rollen. Du får kun ping om det, du har valgt.', '',
+      ...g.roller.map(r => `${r.emoji || '•'} **${r.navn}** · ${r.info || ''}`)].join('\n'))
+    .setFooter({ text: 'Tryk igen for at fjerne rollen' });
+  const raekker = [];
+  for (let n = 0; n < g.roller.length; n += 5) raekker.push(new ActionRowBuilder().addComponents(g.roller.slice(n, n + 5).map(r =>
+    new ButtonBuilder().setCustomId(`rolle:${r.navn}`).setLabel(r.navn).setEmoji(r.emoji || '🔔').setStyle(ButtonStyle.Secondary))));
+  const gammel = await bottensBesked(kanal);
+  if (gammel) await gammel.edit({ embeds: [emb], components: raekker }); else await kanal.send({ embeds: [emb], components: raekker });
+}
+// Ping-rolle til automatiske opslag (fx "Giveaway"), hvis den findes
+const ping = (guild, navn) => { const r = guild?.roles.cache.find(x => x.name === navn); return r ? `<@&${r.id}>` : ''; };
+
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
 async function lavUdskrift(kanal) {
   let alle = [], foer;
@@ -816,7 +1016,7 @@ async function tjekUgeTop() {
         { name: '🥊 Flest duel-sejre', inline: true, value: top3(duel.spillere || [], x => x.us, v => `${tal(v)} ${v === 1 ? 'sejr' : 'sejre'}`) },
         { name: '📅 Længste daily-streak', inline: true, value: top3(stats.spillere, x => x.ds, v => `${tal(v)} dage`) })
       .setFooter({ text: 'Ny uge starter nu · Se alle lister med /top' });
-    await kanal.send({ embeds: [emb] });
+    await kanal.send({ content: ping(kanal.guild, 'Events') || undefined, embeds: [emb] });
     fs.writeFileSync(UGE_FIL, JSON.stringify({ start: ugeKey(new Date(nu.getTime() + 86400000)), kills: Object.fromEntries(stats.spillere.map(x => [x.u, x.k])), postet: iDag }));
     console.log('Ugens top er postet i #events.');
   } catch (e) { console.error('Ugens top fejlede:', e.message); }
@@ -864,6 +1064,7 @@ async function opdaterGuide(guild) {
         `<#${config.kanaler.serverstatus}> · er serveren oppe? 🟢/🔴`,
         `<#${config.kanaler.devlog}> · hvad der er nyt på serveren og Discorden`,
         `<#${config.kanaler.boosts}> · hvem der har boosted Discorden 💜`,
+        `<#${config.kanaler.roller}> · vælg selv hvad du vil have ping om 🔔`,
       ].join('\n') },
       { name: '💡 Forslag', value: '`/forslag` · send en idé til serveren. Staff svarer, og du får en DM.' },
       { name: '🎫 Hjælp', value: `<#${config.kanaler.ticket}> · opret en ticket (support, køb, ansøgning eller anmeld en spiller)` },
@@ -913,6 +1114,44 @@ const kommandoer = [
     .addStringOption(o => o.setName('titel').setDescription('Titel').setRequired(true))
     .addStringOption(o => o.setName('tekst').setDescription('Tekst').setRequired(true))
     .setDefaultMemberPermissions(P.ManageMessages),
+  ...['ban', 'mute', 'kick'].map(ty => {
+    const c = new SlashCommandBuilder().setName(ty).setDescription(`${ty === 'ban' ? 'Ban' : ty === 'mute' ? 'Mute' : 'Kick'} en spiller på Minecraft-serveren`)
+      .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setMaxLength(16))
+      .addStringOption(o => o.setName('grund').setDescription('Grund (samme som i /straf ingame)').setRequired(true)
+        .addChoices(...Object.entries(GRUNDE[ty]).map(([value, name]) => ({ name, value }))));
+    if (ty !== 'kick') c.addStringOption(o => o.setName('tid').setDescription('Kun ved "Skriv selv": fx 30m, 12t, 7d eller perm').setMaxLength(10));
+    return c.addStringOption(o => o.setName('besked').setDescription('Kun ved "Skriv selv": din egen grund').setMaxLength(150))
+      .setDefaultMemberPermissions(P.Administrator);
+  }),
+  ...['unban', 'unmute', 'alts'].map(n => new SlashCommandBuilder().setName(n)
+    .setDescription(n === 'alts' ? 'Find konti, der har spillet fra samme IP som spilleren' : `${n === 'unban' ? 'Fjern ban' : 'Fjern mute'} fra en spiller`)
+    .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setMaxLength(16))
+    .setDefaultMemberPermissions(P.Administrator)),
+  new SlashCommandBuilder().setName('genstart').setDescription('Genstart Minecraft-serveren (med nedtælling)')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Start genstart', value: 'start' }, { name: 'Annuller genstart', value: 'annuller' }, { name: 'Status', value: 'status' }))
+    .addIntegerOption(o => o.setName('sekunder').setDescription('Nedtælling i sekunder (kun ved start)').setMinValue(5).setMaxValue(3600))
+    .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('beacondrop').setDescription('Start eller stop et Beacon Drop')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Start', value: 'start' }, { name: 'Stop', value: 'stop' }))
+    .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('broadcast').setDescription('Send en broadcast til alle ingame')
+    .addStringOption(o => o.setName('besked').setDescription('Beskeden (farvekoder med & virker)').setRequired(true).setMaxLength(200))
+    .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('sig').setDescription('Skriv i chatten ingame som [Discord] dit navn')
+    .addStringOption(o => o.setName('besked').setDescription('Beskeden').setRequired(true).setMaxLength(200))
+    .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('konsol').setDescription('Kør en konsol-kommando på Minecraft-serveren (pas på!)')
+    .addStringOption(o => o.setName('kommando').setDescription('Uden /, fx: say Hej alle').setRequired(true).setMaxLength(250))
+    .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('adgang').setDescription('Styr hvem der må bruge server-kommandoerne (kun Ejer)')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad vil du?').setRequired(true)
+      .addChoices({ name: 'Vis adgang', value: 'vis' }, { name: 'Giv en rolle adgang', value: 'giv' }, { name: 'Fjern en rolles adgang', value: 'fjern' }))
+    .addStringOption(o => o.setName('kommando').setDescription('Hvilken kommando?')
+      .addChoices(...Object.entries(ADGANG_KOMMANDOER).map(([value, b]) => ({ name: `${value} · ${b}`.slice(0, 100), value }))))
+    .addRoleOption(o => o.setName('rolle').setDescription('Hvilken rolle?'))
+    .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('devlog').setDescription('Skriv en opdatering i #dev-log (staff)')
     .setDefaultMemberPermissions(P.ManageMessages),
 ].map(c => c.toJSON());
@@ -936,7 +1175,11 @@ client.once('clientReady', async () => {
   await opdaterStatsKategori(); setInterval(opdaterStatsKategori, 10 * 60000);
   await opdaterLinkKanal(guild).catch(e => console.error('#link:', e.message));
   await opdaterBoostHoved(guild);
+  await saetBotLogo();
+  await opdaterLiveChatAdgang(guild).catch(e => console.error('#live-chat:', e.message));
+  tjekBro(); setInterval(tjekBro, 3000);
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
+  await synkRollerFil(true); setInterval(synkRollerFil, 60000);
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
   postDevlog(); setInterval(postDevlog, 60000);
@@ -1070,6 +1313,50 @@ client.on('interactionCreate', async i => {
       if (i.commandName === 'ip') {
         return i.reply({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🌐 Serverens IP').setDescription(`\`${SERVER_IP}\`\n\n⚠️ ${IP_NOTE}`)] });
       }
+      // ---------- SERVER-KOMMANDOER (bro til Minecraft) ----------
+      if (i.commandName in ADGANG_KOMMANDOER || i.commandName === 'adgang') {
+        if (i.commandName === 'adgang') {
+          if (!erEjer(i.member)) return i.reply({ content: 'Kun Ejer kan ændre adgang.', flags: MessageFlags.Ephemeral });
+          const h = i.options.getString('handling'), k = i.options.getString('kommando'), r = i.options.getRole('rolle');
+          if (h === 'vis') return i.reply({ flags: MessageFlags.Ephemeral, embeds: [new EmbedBuilder().setColor(LILLA).setTitle('🔐 Adgang til server-kommandoer')
+            .setDescription(Object.entries(ADGANG_KOMMANDOER).map(([kk, b]) => `**/${kk}** · ${b}\n> ${(adgang[kk] || []).join(', ') || 'Kun Ejer'}`).join('\n'))
+            .setFooter({ text: 'Ejer har altid adgang til alt. Brug /adgang giv eller fjern.' })] });
+          if (!k || !r) return i.reply({ content: 'Vælg både en kommando og en rolle.', flags: MessageFlags.Ephemeral });
+          const liste = new Set(adgang[k] || []);
+          if (h === 'giv') liste.add(r.name); else liste.delete(r.name);
+          adgang[k] = [...liste]; gemAdgang();
+          if (k === 'livechat') await opdaterLiveChatAdgang(i.guild);
+          return i.reply({ content: `${h === 'giv' ? '✅' : '🗑️'} **${r.name}** ${h === 'giv' ? 'har nu adgang til' : 'har ikke længere adgang til'} **/${k}**.`, flags: MessageFlags.Ephemeral });
+        }
+        if (!harAdgang(i.member, i.commandName)) return i.reply({ content: '🔒 Du har ikke adgang til denne kommando. Spørg Ejer om /adgang.', flags: MessageFlags.Ephemeral });
+        if (!botNoegle()) return i.reply({ content: 'BOT_NOEGLE mangler i .env.', flags: MessageFlags.Ephemeral });
+        const sp = i.options.getString('spiller');
+        if (sp !== null && !MC_NAVN.test(sp)) return i.reply({ content: 'Det er ikke et gyldigt Minecraft-navn.', flags: MessageFlags.Ephemeral });
+        const dnavn = i.user.username.replace(/[^A-Za-z0-9_.]/g, '').slice(0, 32) || 'Discord';
+        const ren = t => String(t || '').replace(/[\r\n]+/g, ' ').trim();
+        switch (i.commandName) {
+          case 'ban': case 'mute': case 'kick': {
+            const ty = i.commandName, g = i.options.getString('grund');
+            let tid = (i.options.getString('tid') || '-').toLowerCase().trim();
+            if (g === 'custom' && ty !== 'kick' && !/^(\d+[mtd]|perm)$/.test(tid)) return i.reply({ content: 'Ved "Skriv selv" skal du angive en tid, fx `30m`, `12t`, `7d` eller `perm`.', flags: MessageFlags.Ephemeral });
+            if (!/^(\d+[mtd]|perm|-)$/.test(tid)) tid = '-';
+            const besked = ren(i.options.getString('besked')) || `${GRUNDE[ty][g]} (fra Discord)`;
+            return tilServer(i, `dc:straf ${ty} ${sp} ${g} ${tid} ${dnavn} ${besked}`, `${ty.toUpperCase()} af **${sp}** (${GRUNDE[ty][g]})`);
+          }
+          case 'unban': return tilServer(i, `unban ${sp}`, `Unban af **${sp}**`);
+          case 'unmute': return tilServer(i, `unmute ${sp}`, `Unmute af **${sp}**`);
+          case 'alts': return tilServer(i, `dc:alts ${sp}`, `Alt-tjek af **${sp}**`);
+          case 'genstart': {
+            const h = i.options.getString('handling'), sek = i.options.getInteger('sekunder');
+            return tilServer(i, `genstart ${h}${h === 'start' && sek ? ` ${sek}` : ''}`, `Genstart: ${h}${sek && h === 'start' ? ` (${sek} sek.)` : ''}`);
+          }
+          case 'beacondrop': return tilServer(i, `bd ${i.options.getString('handling')}`, `Beacon Drop: ${i.options.getString('handling')}`);
+          case 'broadcast': return tilServer(i, `bc ${ren(i.options.getString('besked'))}`, 'Broadcast');
+          case 'sig': return tilServer(i, `dc:sig ${dnavn} ${ren(i.options.getString('besked'))}`, 'Besked ingame');
+          case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
+          default: return i.reply({ content: 'Ukendt kommando.', flags: MessageFlags.Ephemeral });
+        }
+      }
       if (i.commandName === 'devlog') {
         return i.showModal(new ModalBuilder().setCustomId('devlog_modal').setTitle('Ny dev-log').addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('titel').setLabel('Overskrift').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
@@ -1086,6 +1373,7 @@ client.on('interactionCreate', async i => {
         const kanal = i.guild.channels.cache.get(config.kanaler.giveaways) || i.channel;
         const g = { kanal: kanal.id, praemie, slut, af: i.user.id, vindere: i.options.getInteger('vindere') || 1, deltagere: [] };
         const msg = await kanal.send({
+          content: ping(i.guild, 'Giveaway') || undefined,
           embeds: [gwEmbed(g, 0)],
           components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('gw').setLabel('Deltag').setEmoji('🎉').setStyle(ButtonStyle.Primary))],
         });
@@ -1106,6 +1394,16 @@ client.on('interactionCreate', async i => {
       gemGw();
       const g = gwData[i.message.id];
       return i.message.edit({ embeds: [g ? gwEmbed(g, s.size) : i.message.embeds[0]] }).catch(() => {});
+    }
+    if (i.customId.startsWith('rolle:')) {
+      const navn = i.customId.slice(6);
+      const g = (rollerData?.grupper || []).find(x => x.vaelg);
+      if (!g || !g.roller.some(r => rolleNavn(r) === navn)) return i.reply({ content: 'Den rolle kan ikke vælges her.', flags: MessageFlags.Ephemeral });
+      const r = i.guild.roles.cache.find(x => x.name === navn);
+      if (!r) return i.reply({ content: 'Rollen findes ikke endnu.', flags: MessageFlags.Ephemeral });
+      const har = i.member.roles.cache.has(r.id);
+      await (har ? i.member.roles.remove(r) : i.member.roles.add(r));
+      return i.reply({ content: har ? `🔕 Du har fjernet **${navn}**.` : `🔔 Du har nu **${navn}** og får ping om det.`, flags: MessageFlags.Ephemeral });
     }
     if (i.customId === 'link_start') return i.reply(linkSvar(i.user.id));
     if (i.customId === 'link_fjern') return i.reply(await unlinkSvar(i.guild, i.user.id));

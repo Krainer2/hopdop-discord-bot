@@ -1,0 +1,19 @@
+{
+  "_forklaring": "Claude retter denne fil, når du skriver hvem der skal have hvilke roller. Botten tjekker den hvert minut.",
+  "grupper": [
+    { "skille": "Staff Roller", "roller": ["Ejer", "Admin", "Mod", "Hjælper"] },
+    { "skille": "Team Roller", "roller": ["Builder", "Event", "Partner", "Streamer"] },
+    { "skille": "Rank Roller", "roller": ["Legende", "Mester", "Diamant", "Guld", "Sølv", "Bronze"] },
+    { "skille": "Notifikation Roller", "vaelg": true, "roller": [
+      { "navn": "Nyheder", "emoji": "📢", "info": "Ping ved nyheder og opdateringer" },
+      { "navn": "Dev-Log", "emoji": "🛠️", "info": "Ping når der er nyt i #dev-log" },
+      { "navn": "Events", "emoji": "🎉", "info": "Ping ved events og ugens top" },
+      { "navn": "Giveaway", "emoji": "🎁", "info": "Ping ved nye giveaways" },
+      { "navn": "Konkurrence", "emoji": "🏆", "info": "Ping ved konkurrencer" }
+    ] },
+    { "skille": "Medlem Roller", "roller": ["Spiller"] }
+  ],
+  "tildel": {
+    "_eksempel_discordnavn": ["Mod"]
+  }
+}
