@@ -1300,7 +1300,7 @@ async function opsaetOnboarding(guild) {
 }
 // ================= REGELSÆT I #regler =================
 // Én kort besked: link til reglerne på hjemmesiden + knap til at acceptere og få adgang
-const REGLER_VERSION = 2; // hæv tallet, når teksten skal sættes op igen
+const REGLER_VERSION = 3; // hæv tallet, når teksten skal sættes op igen
 async function opsaetRegler(guild) {
   config.community = config.community || {};
   if (config.community.regler === REGLER_VERSION) return;
@@ -1308,8 +1308,8 @@ async function opsaetRegler(guild) {
   if (!kanal) return;
   const gamle = await kanal.messages.fetch({ limit: 50 }).catch(() => null);
   for (const m of gamle?.values() || []) if (m.author.id === client.user.id && m.embeds.some(e => e.footer?.text === 'HOPDOP regelsæt')) await m.delete().catch(() => {});
-  const emb = new EmbedBuilder().setColor(0x4ade80).setTitle('⚔️ SERVER REGLER [Opdateret d. 10/11/2026]')
-    .setDescription('● Tilgå serverens regelsæt.\n● Klik på boksen under dette opslag.\n\nTryk på knappen nedenfor for at acceptere reglerne og få adgang til resten af serveren.')
+  const emb = new EmbedBuilder().setColor(0x4ade80).setTitle('📜 Velkommen til HopDop!')
+    .setDescription('Før du får adgang til resten af serveren, skal du læse vores regler. De gælder både ingame og her på Discord.\n\n**Sådan kommer du ind**\n**1.** Tryk på **Læs reglerne** og læs dem igennem.\n**2.** Tryk på **Accepter reglerne** for at få adgang.\n\nStaff afgør selv hver sag, så brug din sunde fornuft.')
     .setFooter({ text: 'HOPDOP regelsæt' });
   const knapper = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setLabel('Læs reglerne').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(`${WEB}/regler`),
