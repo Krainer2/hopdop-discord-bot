@@ -1098,9 +1098,25 @@ async function afslutFejlTraad(guild, ticketKanalId) {
   delete config.fejltraade[ticketKanalId]; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 }
 // Onboarding: nye vælger selv, hvad de vil have ping om (giver rollerne automatisk)
+// Åben "Velkommen"-kategori: Discord kræver mindst 5 skrivbare standardkanaler til onboarding, og resten af serveren er låst
+const AABEN_KAT = '👋┃Velkommen';
+const AABNE_KANALER = [['💬┃snak', 'Snak løst med alle - husk reglerne'], ['❓┃spørgsmål', 'Spørg om serveren, reglerne eller spillet'], ['🎮┃find-spillere', 'Find nogen at spille med'], ['📸┃screenshots', 'Del billeder fra serveren'], ['😂┃sjov', 'Sjove billeder og klip']];
+async function opsaetAabenKategori(guild) {
+  const alle = guild.roles.everyone;
+  let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AABEN_KAT);
+  if (!kat) kat = await guild.channels.create({ name: AABEN_KAT, type: ChannelType.GuildCategory, position: 0, permissionOverwrites: [{ id: alle.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AddReactions] }] }).catch(e => { console.error('Åben kategori:', e.message); return null; });
+  if (!kat) return [];
+  const ids = [];
+  for (const [navn, emne] of AABNE_KANALER) {
+    let k = guild.channels.cache.find(c => c.parentId === kat.id && c.name === navn);
+    if (!k) k = await guild.channels.create({ name: navn, type: ChannelType.GuildText, parent: kat.id, topic: emne, rateLimitPerUser: 10, permissionOverwrites: [{ id: alle.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AddReactions], deny: [P.MentionEveryone] }], reason: 'Standardkanal til onboarding' }).catch(e => { console.error('Åben kanal ' + navn + ':', e.message); return null; });
+    if (k) ids.push(k.id);
+  }
+  return ids;
+}
 async function opsaetOnboarding(guild) {
   config.community = config.community || {};
-  if (config.community.onboarding === 3) return;
+  if (config.community.onboarding === 4) return;
   await guild.roles.fetch();
   // Opret ping-rollerne hvis de mangler, så spørgsmålet altid har noget at give
   for (const [n, c] of [['Events', 0xfbbf24], ['Giveaway', 0xf472b6], ['Dev-Log', 0x4ade80]]) {
@@ -1111,16 +1127,11 @@ async function opsaetOnboarding(guild) {
     .map(([n, t, e]) => ({ title: t, description: `Få besked om ${t.toLowerCase()}`, emoji_name: e, role_ids: [rolle(n)], channel_ids: [] }));
   if (!valg.length) return;
   const k = config.kanaler;
-  const alle = guild.roles.everyone;
-  const synlige = [k.velkommen, k.regler, k.serverip, k.nyheder, k.events, k.chat, k.medier, k.memes, k.botcmd].filter(id => id && guild.channels.cache.has(id));
-  // Discord kræver mindst 7 standardkanaler, hvor mindst 5 må skrives i af alle - tilføj synlige kanaler til vi har nok
-  for (const c of guild.channels.cache.values()) {
-    if (synlige.length >= 12) break;
-    if ([ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(c.type) && !synlige.includes(c.id) && c.permissionsFor(alle)?.has(P.ViewChannel)) synlige.push(c.id);
-  }
+  const aabne = await opsaetAabenKategori(guild);
+  const synlige = [...aabne, k.velkommen, k.regler].filter(id => id && guild.channels.cache.has(id) && guild.channels.cache.get(id).permissionsFor(guild.roles.everyone)?.has(P.ViewChannel));
   const body = { enabled: true, mode: 0, default_channel_ids: synlige, prompts: [{ type: 0, title: 'Hvad vil du have besked om?', single_select: false, required: false, in_onboarding: true, options: valg }] };
   await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, { body })
-    .then(() => { config.community.onboarding = 3; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
+    .then(() => { config.community.onboarding = 4; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
     .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 standardkanaler, hvor mindst 5 kan skrives i af alle) – slå den til under Server Settings → Onboarding:', e.message));
 }
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
