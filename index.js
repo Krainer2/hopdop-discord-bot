@@ -1100,17 +1100,28 @@ async function afslutFejlTraad(guild, ticketKanalId) {
 // Onboarding: nye vælger selv, hvad de vil have ping om (giver rollerne automatisk)
 async function opsaetOnboarding(guild) {
   config.community = config.community || {};
-  if (config.community.onboarding === 2) return;
+  if (config.community.onboarding === 3) return;
+  await guild.roles.fetch();
+  // Opret ping-rollerne hvis de mangler, så spørgsmålet altid har noget at give
+  for (const [n, c] of [['Events', 0xfbbf24], ['Giveaway', 0xf472b6], ['Dev-Log', 0x4ade80]]) {
+    if (!guild.roles.cache.some(r => r.name === n)) await guild.roles.create({ name: n, color: c, mentionable: false, permissions: [], reason: 'Onboarding ping-rolle' }).catch(e => console.error('Ping-rolle ' + n + ':', e.message));
+  }
   const rolle = n => guild.roles.cache.find(r => r.name === n)?.id;
   const valg = [['Events', 'Events og turneringer', '🎪'], ['Giveaway', 'Giveaways', '🎁'], ['Dev-Log', 'Nyt om serveren (dev-log)', '📢']].filter(([n]) => rolle(n))
     .map(([n, t, e]) => ({ title: t, description: `Få besked om ${t.toLowerCase()}`, emoji_name: e, role_ids: [rolle(n)], channel_ids: [] }));
   if (!valg.length) return;
   const k = config.kanaler;
+  const alle = guild.roles.everyone;
   const synlige = [k.velkommen, k.regler, k.serverip, k.nyheder, k.events, k.chat, k.medier, k.memes, k.botcmd].filter(id => id && guild.channels.cache.has(id));
+  // Discord kræver mindst 7 standardkanaler, hvor mindst 5 må skrives i af alle - tilføj synlige kanaler til vi har nok
+  for (const c of guild.channels.cache.values()) {
+    if (synlige.length >= 12) break;
+    if ([ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(c.type) && !synlige.includes(c.id) && c.permissionsFor(alle)?.has(P.ViewChannel)) synlige.push(c.id);
+  }
   const body = { enabled: true, mode: 0, default_channel_ids: synlige, prompts: [{ type: 0, title: 'Hvad vil du have besked om?', single_select: false, required: false, in_onboarding: true, options: valg }] };
   await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, { body })
-    .then(() => { config.community.onboarding = 2; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
-    .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 synlige kanaler) – slå den til under Server Settings → Onboarding:', e.message));
+    .then(() => { config.community.onboarding = 3; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Onboarding: spørgsmål om ping-roller er sat.'); })
+    .catch(e => console.log('Onboarding kunne ikke sættes automatisk (Discord kræver mindst 7 standardkanaler, hvor mindst 5 kan skrives i af alle) – slå den til under Server Settings → Onboarding:', e.message));
 }
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
 async function opsaetPynt(guild, tving = false) {
