@@ -291,6 +291,10 @@ async function tjekHjemmeside() {
           { name: 'Varighed', value: String(p.varighed || (p.til === -1 ? 'Permanent' : '-')), inline: true })
         .setTimestamp(p.tid || Date.now());
       await kanal.send({ embeds: [emb] }).catch(e => console.error('Straf:', e.message));
+      if (!p.type.startsWith('UN')) {
+        const antal = poster.filter(x => String(x.n).toLowerCase() === String(p.n).toLowerCase() && !String(x.type).startsWith('UN') && !String(x.id).startsWith('aktiv-') && x.tid > Date.now() - 30 * 86400000).length;
+        if (antal >= 3) mistanke('Gengænger', `**${escapeMarkdown(String(p.n))}** har fået **${antal} straffe de seneste 30 dage**. Seneste: ${p.type} (${String(p.grund || 'ingen grund').slice(0, 100)}).`, 0xf59e0b);
+      }
     }
   } catch (e) { console.error('Straffe fra hjemmesiden:', e.message); }
 
@@ -715,6 +719,7 @@ const markTilSpoiler = t => t.replace(/\u0001/g, '||').replace(/\u0002/g, '||');
 const censurer = tekst => { const m = censurMark(tekst); return m ? markTilSpoiler(m) : null; };
 // Til live-chat: escape resten af teksten, men gør grove ord til spoilers
 const penTekst = (tekst, max = 1000) => markTilSpoiler(escapeMarkdown(censurMark(tekst) ?? String(tekst), { spoiler: false })).slice(0, max);
+const censurHits = new Map();
 const censurHook = new Map(); // kanalId -> webhook
 async function censurSend(m, tekst) {
   const kanal = m.channel.isThread() ? m.channel.parent : m.channel;
@@ -735,6 +740,8 @@ client.on('messageCreate', async m => {
     const ny = censurer(m.content);
     if (!ny || m.attachments.size) return;
     await m.delete().catch(() => {});
+    const nu = Date.now(), h = (censurHits.get(m.author.id) || []).filter(t => nu - t < 10 * 60000); h.push(nu); censurHits.set(m.author.id, h);
+    if (h.length === 3) mistanke('Grove ord', `<@${m.author.id}> (${escapeMarkdown(m.author.username)}) har brugt grove ord ${h.length} gange på 10 minutter i <#${m.channel.id}>.`, 0xf59e0b);
     await censurSend(m, ny.slice(0, 2000));
   } catch (e) { console.error('Censur:', e.message); }
 });
@@ -829,6 +836,36 @@ async function kommandoKanal(guild) {
   }
   return k;
 }
+// #mistanke: alle 🚩 samlet ét sted, så staff kun skal følge én kanal
+async function mistankeKanal(guild) {
+  let k = config.kanaler.mistanke && await guild.channels.fetch(config.kanaler.mistanke).catch(() => null);
+  if (!k) {
+    const lc = await liveChatKanal(guild);
+    k = await guild.channels.create({ name: '🚨┃mistanke', type: ChannelType.GuildText, parent: lc.parentId || undefined,
+      topic: 'Automatiske advarsler: join/leave-spam, gengangere med mange straffe og gentagen brug af grove ord. Kun staff.', permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }] });
+    config.kanaler.mistanke = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#mistanke er oprettet.');
+  }
+  return k;
+}
+async function mistanke(titel, tekst, farve = 0xef4444) {
+  try {
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    const k = await mistankeKanal(guild);
+    await k.send({ embeds: [new EmbedBuilder().setColor(farve).setTitle(`🚩 ${titel}`).setDescription(tekst).setTimestamp()] });
+  } catch (e) { console.error('#mistanke:', e.message); }
+}
+// Kategorien "Logs": samler alle log-kanaler. Kun staff kan se den.
+const LOGS_KAT = '📜┃Logs';
+async function opsaetLogs(guild) {
+  let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === LOGS_KAT);
+  if (!kat) kat = await guild.channels.create({ name: LOGS_KAT, type: ChannelType.GuildCategory, permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ManageChannels] }] }).catch(e => { console.error('Logs-kategori:', e.message); return null; });
+  if (!kat) return;
+  for (const noegle of ['straflog', 'botlog', 'joinleave', 'livekom', 'mistanke']) {
+    const id = config.kanaler[noegle]; const k = id && await guild.channels.fetch(id).catch(() => null);
+    if (k && k.parentId !== kat.id) await k.setParent(kat.id, { lockPermissions: false, reason: 'Samlet i Logs' }).catch(e => console.error(`Flyt ${noegle}:`, e.message));
+  }
+}
 // #join-leave: samme adgang som #live-chat, men kun joins/leaves - så de ikke fylder i den almindelige chat
 async function joinLeaveKanal(guild) {
   let k = config.kanaler.joinleave && await guild.channels.fetch(config.kanaler.joinleave).catch(() => null);
@@ -846,12 +883,14 @@ async function opdaterLiveChatAdgang(guild) {
   const k = await liveChatKanal(guild);
   const jl = await joinLeaveKanal(guild);
   const kk = await kommandoKanal(guild);
+  const mk = await mistankeKanal(guild);
   const roller = new Set(['Ejer', ...(adgang.livechat || [])]);
   const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages] }];
   for (const navn of roller) { const r = guild.roles.cache.find(x => x.name === navn); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
   await k.permissionOverwrites.set(ow).catch(e => console.error('#live-chat adgang:', e.message));
   await jl.permissionOverwrites.set(ow).catch(e => console.error('#join-leave adgang:', e.message));
   await kk.permissionOverwrites.set(ow).catch(e => console.error('#live-kommandoer adgang:', e.message));
+  await mk.permissionOverwrites.set(ow).catch(e => console.error('#mistanke adgang:', e.message));
 }
 const klok = t => new Date(t).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit' });
 const RANK_IKON = { Ejer: '👑', Admin: '🔴', Mod: '🟣', 'Hjælper': '🟢', Builder: '🔷', Legende: '💎', Mester: '💠', Diamant: '💎', Guld: '🟡', 'Sølv': '⚪', Bronze: '🟤' };
@@ -860,7 +899,7 @@ const joinTid = new Map(), joinHist = new Map();
 function joinFlag(navn, t) {
   const n = navn.toLowerCase(); joinTid.set(n, t);
   const h = (joinHist.get(n) || []).filter(x => t - x < 10 * 60000); h.push(t); joinHist.set(n, h);
-  if (h.length >= 4) { botLogKanal().then(k => k.send({ embeds: [new EmbedBuilder().setColor(0xef4444).setTitle('🚩 Join/leave-spam').setDescription(`**${escapeMarkdown(navn)}** har joinet ${h.length} gange på 10 minutter. Tjek for omgåelse af straf eller combat-log.`).setTimestamp()] })).catch(() => {}); return ` 🚩 **${h.length}. join på 10 min**`; }
+  if (h.length >= 4) { if (h.length === 4) mistanke('Join/leave-spam', `**${escapeMarkdown(navn)}** har joinet ${h.length} gange på 10 minutter. Tjek for omgåelse af straf eller combat-log.`); return ` 🚩 **${h.length}. join på 10 min**`; }
   return h.length === 3 ? ' ⚠️ 3. join på 10 min' : '';
 }
 function spilletid(navn, t) {
@@ -2414,6 +2453,7 @@ client.once('clientReady', async () => {
   await opdaterBoostHoved(guild);
   await saetBotLogo();
   await opdaterLiveChatAdgang(guild).catch(e => console.error('#live-chat:', e.message));
+  await opsaetLogs(guild).catch(e => console.error('Logs:', e.message));
   await botLogKanal().catch(e => console.error('#bot-logs:', e.message));
   tjekBro(); setInterval(tjekBro, 3000);
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
