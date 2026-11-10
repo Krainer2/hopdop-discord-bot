@@ -1,0 +1,14 @@
+# Hemmeligheder - må ALDRIG uploades
+.env
+
+# Pakker (hentes med npm install)
+node_modules/
+
+# Genereres/ændres af botten på din egen PC
+config.json
+forslag.json
+
+# Diverse
+*.log
+.DS_Store
+Thumbs.db
