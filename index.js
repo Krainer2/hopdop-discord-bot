@@ -701,11 +701,20 @@ const CENSUR = [
   ordRegex('tranny'), ordRegex('paki'), ordRegex('retard', { ekstra: '(?:ed|s)?' }), ordRegex('spasser', { ekstra: 's?' }), ordRegex('mongol', { ekstra: 's?' }),
   ordRegex('bøsserøv'), ordRegex('niggerjøde'), ordRegex('sandneger'), ordRegex('abekat'),
 ];
-function censurer(tekst) {
-  let ud = tekst, ramt = false;
-  for (const re of CENSUR) ud = ud.replace(re, ord => { ramt = true; return `||${ord.replace(/\|/g, '')}||`; });
+// Censur kan slås til/fra med /censur (gemmes i censur.json)
+const CENSUR_FIL = 'censur.json';
+let censurTil = (() => { try { return JSON.parse(fs.readFileSync(CENSUR_FIL, 'utf8')).til !== false; } catch { return true; } })();
+const saetCensur = til => { censurTil = til; fs.writeFileSync(CENSUR_FIL, JSON.stringify({ til })); };
+function censurMark(tekst) { // grove ord får tegnene \u0001 ... \u0002 omkring sig
+  let ud = String(tekst), ramt = false;
+  if (!censurTil) return null;
+  for (const re of CENSUR) ud = ud.replace(re, ord => { ramt = true; return `\u0001${ord.replace(/\|/g, '')}\u0002`; });
   return ramt ? ud : null;
 }
+const markTilSpoiler = t => t.replace(/\u0001/g, '||').replace(/\u0002/g, '||');
+const censurer = tekst => { const m = censurMark(tekst); return m ? markTilSpoiler(m) : null; };
+// Til live-chat: escape resten af teksten, men gør grove ord til spoilers
+const penTekst = (tekst, max = 1000) => markTilSpoiler(escapeMarkdown(censurMark(tekst) ?? String(tekst), { spoiler: false })).slice(0, max);
 const censurHook = new Map(); // kanalId -> webhook
 async function censurSend(m, tekst) {
   const kanal = m.channel.isThread() ? m.channel.parent : m.channel;
@@ -722,7 +731,7 @@ async function censurSend(m, tekst) {
 }
 client.on('messageCreate', async m => {
   try {
-    if (!MESSAGE_CONTENT || !m.guild || m.author.bot || m.webhookId || m.system || !m.content) return;
+    if (!censurTil || !MESSAGE_CONTENT || !m.guild || m.author.bot || m.webhookId || m.system || !m.content) return;
     const ny = censurer(m.content);
     if (!ny || m.attachments.size) return;
     await m.delete().catch(() => {});
@@ -807,16 +816,17 @@ function chatLinje(c) {
   const b = rest.join('|');
   const tid = `\`${klok(c.t)}\``;
   const e = escapeMarkdown;
-  if (type === 'C') return `${tid} 💬 **${e(a)}** » ${e(b)}`;
+  if (type === 'C') return `${tid} 💬 **${e(a)}** » ${penTekst(b)}`;
   if (type === 'J') return `${tid} 🟢 **${e(a)}** joinede serveren`;
   if (type === 'Q') return `${tid} 🔴 **${e(a)}** forlod serveren`;
   if (type === 'D') return `${tid} 💀 ${e(a)}`;
   if (type === 'K') { // K|rank|spiller|/kommando
     const [spiller, ...k] = rest;
     const rank = a && a !== '*' ? `${RANK_IKON[a] || '▫️'} ` : '';
-    return `${tid} ⌨️ ${rank}**${e(spiller || '?')}** brugte \`${k.join('|').replace(/`/g, "'").slice(0, 150)}\``;
+    const kom = k.join('|').slice(0, 150);
+    return `${tid} ⌨️ ${rank}**${e(spiller || '?')}** brugte ${censurMark(kom) ? penTekst(kom, 150) : `\`${kom.replace(/`/g, "'")}\``}`;
   }
-  return `${tid} ${e(c.tekst)}`;
+  return `${tid} ${penTekst(c.tekst)}`;
 }
 async function tjekBro() {
   if (!botNoegle()) return;
@@ -1210,7 +1220,7 @@ async function opdaterGuide(guild) {
         `Giveaways · tryk **Deltag** i <#${config.kanaler.giveaways}>`,
         `Ugens top 3 · hver søndag kl. 20 i <#${config.kanaler.events}>`,
       ].join('\n') },
-      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/cc <antal>` · ryd de sidste beskeder i kanalen (fx `/cc 40`)\n`/say` · send en pæn besked som botten' },
+      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/censur til|fra` · slå spoiler-censur af grove ord til/fra\n`/cc <antal>` · ryd de sidste beskeder i kanalen (fx `/cc 40`)\n`/say` · send en pæn besked som botten' },
     )
     .setFooter({ text: `Stats, top og online virker kun i #bot-kommandoer · Hjemmeside: ${WEB.replace('https://', '')}` });
   const beskeder = await kanal.messages.fetch({ limit: 10 });
@@ -1291,6 +1301,10 @@ const kommandoer = [
       .addChoices(...Object.entries(ADGANG_KOMMANDOER).map(([value, b]) => ({ name: `${value} · ${b}`.slice(0, 100), value }))))
     .addRoleOption(o => o.setName('rolle').setDescription('Hvilken rolle?'))
     .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('censur').setDescription('Slå censur (grove ord som spoilers) til eller fra')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Slå til', value: 'til' }, { name: 'Slå fra (vis ordene)', value: 'fra' }, { name: 'Status', value: 'status' }))
+    .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('cc').setDescription('Ryd de sidste beskeder i denne kanal (staff)')
     .addIntegerOption(o => o.setName('antal').setDescription('Hvor mange beskeder? (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
     .setDefaultMemberPermissions(P.ManageMessages),
@@ -1502,6 +1516,14 @@ client.on('interactionCreate', async i => {
           case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
           default: return i.reply({ content: 'Ukendt kommando.', flags: MessageFlags.Ephemeral });
         }
+      }
+      if (i.commandName === 'censur') {
+        if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan styre censuren.', flags: MessageFlags.Ephemeral });
+        const h = i.options.getString('handling');
+        if (h === 'til') saetCensur(true); else if (h === 'fra') saetCensur(false);
+        return i.reply({ flags: MessageFlags.Ephemeral, content: `🔞 Censur er **${censurTil ? 'TIL' : 'FRA'}**.\n`
+          + `• Live-chat: ${censurTil ? 'grove ord vises som spoilers' : 'ordene vises som de er'}\n`
+          + `• Discord-chatten: ${!censurTil ? 'ikke censureret' : MESSAGE_CONTENT ? 'grove ord bliver til spoilers' : '⚠️ virker ikke endnu – slå **Message Content Intent** til i Developer Portal (Bot) og genstart botten'}` });
       }
       if (i.commandName === 'cc') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan rydde chatten.', flags: MessageFlags.Ephemeral });
