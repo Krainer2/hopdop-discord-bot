@@ -349,6 +349,7 @@ async function tjekLinks() {
       linkData.links[v.d] = { u: k.u, n: k.n, r: '' };
       devlogDiscord(`🔗 **${k.n}** har forbundet sin Minecraft med Discord`);
       delete linkData.ventende[kode];
+      profilSat.add(v.d + k.n); await saetLinkProfil(guild, v.d, k.n);
       console.log(`Forbundet: ${k.n} <-> ${v.d}`);
       client.users.fetch(v.d).then(u => u.send({ embeds: [new EmbedBuilder().setColor(0x22c55e)
         .setTitle('✅ Din Discord er forbundet!')
@@ -359,8 +360,9 @@ async function tjekLinks() {
     // Ranks -> roller (kun når noget har ændret sig)
     for (const [d, l] of Object.entries(linkData.links)) {
       const r = ranks[l.u];
+      if (r && r.n) l.n = r.n;
+      if (!profilSat.has(d + l.n)) { profilSat.add(d + l.n); await saetLinkProfil(guild, d, l.n); }
       if (!r) continue;
-      if (r.n) l.n = r.n;
       const noegle = r.r.slice().sort().join(',');
       if (noegle === l.r) continue;
       await synkRoller(guild, d, r.r);
@@ -539,6 +541,7 @@ async function unlinkSvar(guild, discordId) {
   delete linkData.links[discordId]; gemLink();
   postPrivat('link', { type: 'fjern', u: l.u }).catch(() => {});
   await synkRoller(guild, discordId, []);
+  await fjernLinkProfil(guild, discordId, l.n);
   return { content: `Forbindelsen til **${l.n}** er fjernet, og dine rank-roller er taget af.`, flags: MessageFlags.Ephemeral };
 }
 
@@ -653,7 +656,8 @@ async function saetGrafik(guild) {
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 }
 const SERVER_BESKRIVELSE = `Dansk Minecraft HCF Kits-server på 1.8.9 🏯 Kits, teams, KOTH og duels. Join: ${SERVER_IP}`;
-client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) { saetGrafik(ny); opsaetPynt(ny); } if (ny.premiumSubscriptionCount !== gl.premiumSubscriptionCount) opdaterBoostHoved(ny); });
+client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) { saetGrafik(ny); opsaetPynt(ny); } if (ny.premiumSubscriptionCount !== gl.premiumSubscriptionCount) tjekBoostMaal(ny); });
+client.on('guildMemberUpdate', (gl, ny) => { if (!!gl.premiumSince !== !!ny.premiumSince) synkBoostere(ny.guild).then(() => opdaterBoostHoved(ny.guild)); });
 
 // ---------- #boosts: hvem har boosted serveren ----------
 const BOOST_TYPER = { 8: 0, 9: 1, 10: 2, 11: 3 }; // Discords boost-beskeder -> niveau (0 = intet nyt niveau)
@@ -665,16 +669,29 @@ async function opdaterBoostHoved(guild) {
   try {
     const kanal = await boostKanal(guild);
     const n = guild.premiumSubscriptionCount || 0, niv = guild.premiumTier || 0;
-    const maal = [2, 7, 14][Math.min(niv, 2)];
+    const pluralis = k => `${k} boost${k === 1 ? '' : 's'}`;
+    const naesteDiscord = BOOST_TRIN.find(t => t.discord.length && t.n > n);
+    const naesteEvent = BOOST_TRIN.find(t => t.n > n);
+    const linjer = [`🔮 Boosts lige nu: **${n}**`, `⭐ Discord-niveau: **${niv}**`, `\`${bar(n, 14, 14)}\` **${n}/14**`, ''];
+    if (naesteDiscord) linjer.push(`⬆️ **Næste Discord-tilføjelse: ${naesteDiscord.titel}** – mangler **${pluralis(naesteDiscord.n - n)}**`, ...naesteDiscord.discord.map(x => `• ${x}`), '');
+    else linjer.push('⬆️ **Discord er på max niveau!** Tusind tak! 💜', '');
+    if (naesteEvent) linjer.push(`🎁 **Næste server-belønning:** ved **${naesteEvent.n} boosts** (mangler **${pluralis(naesteEvent.n - n)}**)`, ...[naesteEvent.event && `• ${eventTekst(naesteEvent.event)}`, ...naesteEvent.hopdop.map(x => `• ${x}`)].filter(Boolean));
+    else linjer.push('🎁 Alle belønninger er låst op!');
     const emb = new EmbedBuilder().setColor(0xf47fff).setAuthor({ name: 'HOPDOP · Boosts' })
       .setTitle('💜 Tak til alle der booster HOPDOP!')
-      .setDescription([
-        `🔮 Boosts lige nu: **${n}**`,
-        `⭐ Niveau: **${niv}**${niv < 3 ? ` · næste niveau ved **${maal}** boosts` : ' · max niveau!'}`,
-        '', 'Hver gang nogen booster, bliver det skrevet herunder. Tak for støtten! 🙏',
-        niv < 2 ? '\n*Ved niveau 2 får Discorden sit HOPDOP-banner øverst i kanallisten.*' : '',
-      ].join('\n'))
+      .setDescription(linjer.join('\n').slice(0, 4000))
       .setThumbnail('attachment://ikon.png');
+    for (const t of BOOST_TRIN) {
+      const dele = [];
+      if (t.discord.length) dele.push('**Discord:** ' + t.discord.join(' · '));
+      if (t.hopdop.length) dele.push('**Server:** ' + t.hopdop.join(' · '));
+      if (t.event) dele.push('**Event:** ' + eventTekst(t.event));
+      emb.addFields({ name: `${n >= t.n ? '✅' : '🔒'} ${t.n} boost${t.n > 1 ? 's' : ''} · ${t.titel}`, value: dele.join('\n').slice(0, 1024) || '–' });
+    }
+    const boosters = guild.members.cache.filter(m => m.premiumSince && !m.user.bot).map(m => `<@${m.id}>`);
+    if (boosters.length) emb.addFields({ name: `💜 Boosters (${boosters.length})`, value: boosters.slice(0, 30).join(' ').slice(0, 1024) });
+    emb.addFields({ name: '🎁 Fordele for boosters', value: 'Booster-rolle · 💜┃booster-lounge · egen rollefarve med `/boosterfarve` · hvert boost starter events for hele serveren' });
+    emb.setFooter({ text: 'Opdateres automatisk · Hver gang nogen booster, skrives det herunder' });
     const filer = fs.existsSync('assets/ikon.png') ? [new AttachmentBuilder('assets/ikon.png', { name: 'ikon.png' })] : [];
     if (!filer.length) emb.setThumbnail(null);
     const gammel = await bottensBesked(kanal);
@@ -767,7 +784,7 @@ const ADGANG_FIL = 'adgang.json';
 const ADGANG_KOMMANDOER = {
   konsol: 'Kør en hvilken som helst konsol-kommando', ban: 'Ban en spiller', mute: 'Mute en spiller', kick: 'Kick en spiller',
   unban: 'Fjern en ban', unmute: 'Fjern en mute', alts: 'Find alt-konti', genstart: 'Genstart serveren',
-  beacondrop: 'Start/stop Beacon Drop', broadcast: 'Send en broadcast', sig: 'Skriv i chatten ingame', livechat: 'Se #live-chat',
+  beacondrop: 'Start/stop Beacon Drop', autoevent: 'Start/stop auto-events', broadcast: 'Send en broadcast', sig: 'Skriv i chatten ingame', livechat: 'Se #live-chat',
 };
 const adgang = (() => { try { return JSON.parse(fs.readFileSync(ADGANG_FIL, 'utf8')); } catch { return {}; } })();
 for (const k of Object.keys(ADGANG_KOMMANDOER)) if (!adgang[k]) adgang[k] = ['Ejer']; // kun Ejer til at starte med
@@ -778,7 +795,7 @@ const harAdgang = (m, k) => erEjer(m) || (adgang[k] || []).some(navn => m.roles.
 
 // ---------- Send til serveren og vent på svar ----------
 const ventSvar = new Map(); // id -> { i, tekst, timer }
-async function tilServer(i, kommando, beskrivelse, udenSvar = false) {
+async function tilServer(i, kommando, beskrivelse, udenSvar = false, { fmt = null, log = true } = {}) {
   await i.deferReply({ flags: MessageFlags.Ephemeral });
   let id;
   try { ({ id } = await postPrivat('bro', { type: 'kommando', kommando, af: i.user.username })); }
@@ -789,8 +806,8 @@ async function tilServer(i, kommando, beskrivelse, udenSvar = false) {
     ventSvar.delete(id);
     i.editReply(`⚠️ ${beskrivelse}: sendt, men serveren har ikke svaret inden for 40 sek. Kører DiscordBro.sk? (Tjek `/discordbro` ingame.)`).catch(() => {});
   }, 40000);
-  ventSvar.set(id, { i, beskrivelse, timer });
-  logBro(i.user, kommando);
+  ventSvar.set(id, { i, beskrivelse, timer, fmt });
+  if (log) logBro(i.user, kommando);
 }
 // #bot-logs: kun Ejer og Admin kan se kommandoer sendt fra Discord til serveren (holdes væk fra #straf-log)
 async function botLogKanal() {
@@ -969,7 +986,7 @@ async function tjekBro() {
       const v = ventSvar.get(s.id);
       if (!v) continue;
       clearTimeout(v.timer); ventSvar.delete(s.id);
-      v.i.editReply(`✅ ${v.beskrivelse}\n> ${s.tekst}`).catch(() => {});
+      v.i.editReply(v.fmt ? v.fmt(s.tekst) : `✅ ${v.beskrivelse}\n> ${s.tekst}`).catch(() => {});
     }
     if (d.chat.length) {
       const guild = await client.guilds.fetch(process.env.GUILD_ID);
@@ -2376,10 +2393,12 @@ async function opdaterGuide(guild) {
         '`/stats <spiller>` · kills, K/D, placering, team og duels, ligesom ingame',
         '`/top <liste>` · top 10 i kills, K/D, daily, duels, KOTH m.m.',
         '`/online` · hvem der er på serveren lige nu',
+        '`/faction <navn>` · et teams medlemmer og kills (uden navn: top 10 teams)',
+        '`/ign` · se Minecraft-navnet på en forbundet spiller',
       ].join('\n') },
       { name: '🔗 Forbind Minecraft', value: [
         `<#${config.kanaler.link}> · tryk på knappen, eller brug \`/link\`, og skriv \`/discord <kode>\` ingame`,
-        'Så får du automatisk din rank-rolle, og `/stats` viser dine egne stats',
+        'Så får du automatisk din rank-rolle, rollen **Forbundet** og dit Minecraft-navn som kaldenavn, og `/stats` viser dine egne stats',
         '`/unlink` · fjern forbindelsen',
       ].join('\n') },
       { name: '🌐 Server', value: [
@@ -2409,11 +2428,16 @@ async function opdaterGuide(guild) {
 }
 
 // Kommandoer som almindelige spillere kun må bruge i #bot-kommandoer (staff må overalt)
-const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online', 'link'];
+const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online', 'link', 'ign', 'faction', 'boosterfarve'];
 
 const erStaff = m => m.roles.cache.some(r => STAFF.includes(r.id));
 const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'], bug: ['Fejlrapport', '🐞'] };
 
+const EVENT_TYPER = {
+  dobbelt:    { emoji: '💰', navn: 'Dobbelt kill-penge',    farve: 0x22c55e, min: 30, vaegt: 5, kmd: m => `autoevent start kills 2 ${m}`, besk: m => `Alle kills giver **dobbelt penge** i **${m} minutter**. Ud og kæmp!` },
+  tredobbelt: { emoji: '🔥', navn: 'Tredobbelt kill-penge', farve: 0xef4444, min: 15, vaegt: 2, kmd: m => `autoevent start kills 3 ${m}`, besk: m => `Alle kills giver **tredobbelt penge** i **${m} minutter**. Nu er det tid til at jagte!` },
+  beacon:     { emoji: '📡', navn: 'Ekstra Beacon Drop',    farve: 0x38bdf8, min: 0,  vaegt: 3, kmd: () => 'bd start',                 besk: () => 'Et **ekstra Beacon Drop** er på vej! Hold øje med koordinaterne ingame.' },
+};
 const kommandoer = [
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
   new SlashCommandBuilder().setName('top').setDescription('Se top 10 på et leaderboard')
@@ -2421,6 +2445,18 @@ const kommandoer = [
       .addChoices(...Object.entries(TOP).map(([value, t]) => ({ name: t.navn, value })))),
   new SlashCommandBuilder().setName('online').setDescription('Se hvem der er online på Hopdop'),
   new SlashCommandBuilder().setName('link').setDescription('Forbind din Discord med din Minecraft-konto og få din rank-rolle'),
+  new SlashCommandBuilder().setName('ign').setDescription('Se Minecraft-navnet på en forbundet spiller, eller find ud af hvem et Minecraft-navn er')
+    .addUserOption(o => o.setName('bruger').setDescription('Discord-bruger (tom = dig selv)'))
+    .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn: find hvem det er på Discord').setMaxLength(16)),
+  new SlashCommandBuilder().setName('faction').setDescription('Se et team: medlemmer, kills og mere. Uden navn: top 10')
+    .addStringOption(o => o.setName('navn').setDescription('Teamets navn (tom = top 10)').setMaxLength(32)),
+  new SlashCommandBuilder().setName('boosterfarve').setDescription('Kun for boosters: vælg din egen rollefarve')
+    .addStringOption(o => o.setName('farve').setDescription('Hex-farve, fx ff66cc').setRequired(true).setMinLength(6).setMaxLength(7)),
+  new SlashCommandBuilder().setName('autoevent').setDescription('Start eller stop automatiske events (staff)')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Start et event nu', value: 'start' }, { name: 'Stop kill-penge-eventet', value: 'stop' }, { name: 'Vis status', value: 'status' }, { name: 'Slå automatiske events til', value: 'til' }, { name: 'Slå automatiske events fra', value: 'fra' }))
+    .addStringOption(o => o.setName('type').setDescription('Hvilket event? (kun ved start)').addChoices(...Object.entries(EVENT_TYPER).map(([value, t]) => ({ name: `${t.emoji} ${t.navn}`, value }))))
+    .addIntegerOption(o => o.setName('minutter').setDescription('Hvor længe? (kun ved start)').setMinValue(1).setMaxValue(240)),
   new SlashCommandBuilder().setName('unlink').setDescription('Fjern forbindelsen mellem din Discord og Minecraft'),
   new SlashCommandBuilder().setName('stats').setDescription('Se en spillers stats fra Hopdop')
     .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn (tom = dig selv, hvis du har brugt /link)').setRequired(false).setAutocomplete(true).setMaxLength(16)),
@@ -2518,6 +2554,300 @@ const kommandoer = [
     .setDefaultMemberPermissions(P.ManageMessages),
 ].map(c => c.toJSON());
 
+// =====================================================================================
+// NYT: LINK-PROFIL, /faction, AUTO-TIMEOUT, AUTO-EVENTS OG BOOST-BELØNNINGER
+// =====================================================================================
+const gemCfg = () => fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+const profilSat = new Set(); // "discordId+mcNavn" når rolle og kaldenavn er sat i denne kørsel
+
+// ---------- Forbundet-rolle og Minecraft-kaldenavn ----------
+const LINK_ROLLE = 'Forbundet';
+async function linkRolle(guild) {
+  let r = config.linkRolle && guild.roles.cache.get(config.linkRolle);
+  if (!r) r = guild.roles.cache.find(x => x.name === LINK_ROLLE);
+  if (!r) r = await guild.roles.create({ name: LINK_ROLLE, color: 0, permissions: [], mentionable: false, reason: 'Discord forbundet med Minecraft' }).catch(e => { console.error('Forbundet-rolle:', e.message); return null; });
+  if (r && config.linkRolle !== r.id) { config.linkRolle = r.id; gemCfg(); }
+  return r;
+}
+async function saetLinkProfil(guild, discordId, mcNavn) {
+  const m = await guild.members.fetch(discordId).catch(() => null);
+  if (!m) return;
+  const r = await linkRolle(guild);
+  if (r && !m.roles.cache.has(r.id)) await m.roles.add(r, 'Forbundet med Minecraft').catch(e => console.error('Forbundet-rolle:', e.message));
+  if (m.nickname !== mcNavn && m.manageable) await m.setNickname(mcNavn, 'Minecraft-navn fra /link').catch(e => console.error('Kaldenavn:', e.message));
+}
+async function fjernLinkProfil(guild, discordId, mcNavn) {
+  const m = await guild.members.fetch(discordId).catch(() => null);
+  if (!m) return;
+  if (config.linkRolle && m.roles.cache.has(config.linkRolle)) await m.roles.remove(config.linkRolle, 'Forbindelsen er fjernet').catch(() => {});
+  if (m.nickname === mcNavn && m.manageable) await m.setNickname(null, 'Forbindelsen er fjernet').catch(() => {});
+  profilSat.delete(discordId + mcNavn);
+}
+function ignSvar(i) {
+  const sp = i.options.getString('spiller');
+  const ep = { flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+  if (sp) {
+    if (!MC_NAVN.test(sp)) return { content: 'Det er ikke et gyldigt Minecraft-navn.', ...ep };
+    const hit = Object.entries(linkData.links).find(([, l]) => l.n.toLowerCase() === sp.toLowerCase());
+    return { content: hit ? `🎮 **${hit[1].n}** er forbundet med <@${hit[0]}>.` : `Ingen på Discord er forbundet med **${sp}** endnu.`, ...ep };
+  }
+  const bruger = i.options.getUser('bruger') || i.user;
+  const l = linkAf(bruger.id);
+  if (!l) return { content: bruger.id === i.user.id ? 'Du er ikke forbundet endnu. Brug `/link`, så får du Minecraft-navn og rolle automatisk.' : `<@${bruger.id}> er ikke forbundet med en Minecraft-konto.`, ...ep };
+  if (bruger.id === i.user.id) saetLinkProfil(i.guild, bruger.id, l.n).catch(() => {});
+  return { content: `🎮 <@${bruger.id}> spiller som **${l.n}** på Hopdop.`, ...ep };
+}
+
+// ---------- /faction ----------
+function factionSvar(tekst) {
+  const d = String(tekst).split(';;');
+  if (d[0] === 'TOP') {
+    const hold = (d[1] || '').split('@@').filter(Boolean).map(x => { const [n, k, a] = x.split('='); return { n, k: Number(k) || 0, a: Number(a) || 0 }; })
+      .sort((x, y) => y.k - x.k).slice(0, 10);
+    const medalje = ['🥇', '🥈', '🥉'];
+    const emb = new EmbedBuilder().setColor(0xff8c42).setAuthor({ name: 'HOPDOP · Teams' }).setTitle('🏆 Top 10 teams (efter kills)')
+      .setDescription(hold.length ? hold.map((h, n) => `${medalje[n] || `**${n + 1}.**`} **${h.n}** · ${h.k} kills · ${h.a} medlemmer`).join('\n') : 'Der er ingen teams endnu.')
+      .setFooter({ text: 'Se ét team: /faction navn' });
+    return { content: '', embeds: [emb] };
+  }
+  if (d[0] !== 'OK') return { content: `❌ ${d[1] || 'Noget gik galt.'}`, embeds: [] };
+  const [, navn, antal, online, kills, liste, andre] = d;
+  const emb = new EmbedBuilder().setColor(0xff8c42).setAuthor({ name: 'HOPDOP · Team' }).setTitle(`🛡️ ${navn}`)
+    .addFields({ name: '👥 Medlemmer', value: `${antal}`, inline: true }, { name: '🟢 Online', value: `${online}`, inline: true }, { name: '⚔️ Kills i alt', value: `${kills}`, inline: true });
+  const navne = (liste || '').split('@@').filter(Boolean);
+  if (navne.length) emb.addFields({ name: 'Medlemsliste', value: navne.join(', ').slice(0, 1000) });
+  const felter = (andre || '').split('@@').filter(Boolean).map(f => { const [k, ...v] = f.split('='); return `**${k}:** ${v.join('=')}`; });
+  if (felter.length) emb.addFields({ name: 'Detaljer', value: felter.join('\n').slice(0, 1000) });
+  return { content: '', embeds: [emb] };
+}
+
+// ---------- AUTO-TIMEOUT: spam, flooding, gentagelser og CAPS ----------
+// (Invites, massetags og grove ord tager Discords egen AutoMod sig af, se opsaetAutoMod.)
+const SPAM_TIL = true;
+const spamLog = new Map(); // brugerId -> { t: [tidspunkter], tekster: [{ x, t }], overtraed: [tidspunkter] }
+function erCaps(tekst) {
+  const bogstaver = tekst.replace(/<[^>]*>|https?:\/\/\S+|[^\p{L}]/gu, '');
+  if (bogstaver.length < 12) return false;
+  const store = bogstaver.replace(/[^\p{Lu}]/gu, '').length;
+  return store / bogstaver.length >= 0.7;
+}
+client.on('messageCreate', async m => {
+  try {
+    if (!SPAM_TIL || !m.guild || m.author.bot || m.webhookId || m.system || !m.member) return;
+    if (erStaff(m.member) || m.member.permissions.has(P.Administrator)) return;
+    const nu = Date.now();
+    const s = spamLog.get(m.author.id) || { t: [], tekster: [], overtraed: [] };
+    s.t = s.t.filter(x => nu - x < 6000); s.t.push(nu);
+    s.tekster = s.tekster.filter(x => nu - x.t < 30000);
+    const tekst = (m.content || '').trim().toLowerCase();
+    if (tekst.length >= 4) s.tekster.push({ x: tekst, t: nu });
+    let grund = null;
+    if (s.t.length >= 6) grund = 'spam (for mange beskeder på kort tid)';
+    else if (tekst.length >= 4 && s.tekster.filter(x => x.x === tekst).length >= 3) grund = 'gentagne beskeder';
+    else if (MESSAGE_CONTENT && erCaps(m.content || '')) grund = 'for mange store bogstaver (caps)';
+    spamLog.set(m.author.id, s);
+    if (!grund) return;
+    s.t = []; s.tekster = [];
+    s.overtraed = s.overtraed.filter(x => nu - x < 10 * 60000); s.overtraed.push(nu);
+    const n = s.overtraed.length;
+    await m.delete().catch(() => {});
+    if (grund.startsWith('spam')) { // fjern også det, personen lige har skrevet i kanalen
+      const nyeste = await m.channel.messages.fetch({ limit: 30 }).catch(() => null);
+      const mine = nyeste && nyeste.filter(x => x.author.id === m.author.id && nu - x.createdTimestamp < 60000);
+      if (mine && mine.size) await m.channel.bulkDelete(mine, true).catch(() => {});
+    }
+    if (n === 1) {
+      const w = await m.channel.send({ content: `${m.author}, ro på – det ligner ${grund}. Næste gang får du en timeout. 🔇`, allowedMentions: { users: [m.author.id] } }).catch(() => null);
+      if (w) setTimeout(() => w.delete().catch(() => {}), 8000);
+      return;
+    }
+    const minutter = n === 2 ? 5 : 30;
+    await m.member.timeout(minutter * 60000, `Auto-timeout: ${grund}`).catch(e => console.error('Auto-timeout:', e.message));
+    const w = await m.channel.send({ content: `🔇 ${m.author} er sat på timeout i **${minutter} minutter** (${grund}).`, allowedMentions: { users: [m.author.id] } }).catch(() => null);
+    if (w) setTimeout(() => w.delete().catch(() => {}), 15000);
+    mistanke('Auto-timeout', `<@${m.author.id}> (${escapeMarkdown(m.author.username)}) blev sat på timeout i ${minutter} min i <#${m.channel.id}>: ${grund}. Overtrædelse nr. ${n} på 10 minutter.`, n >= 3 ? 0xef4444 : 0xf59e0b);
+  } catch (e) { console.error('Spam-vagt:', e.message); }
+});
+
+// ---------- AUTO-EVENTS ----------
+// Botten starter selv events ingame (via konsol-kommandoer til DiscordBro.sk / Autoevents.sk) og skriver dem ud i #events.
+const EVENT_TID = { fra: 15, til: 23 }; // automatiske events kommer kun mellem kl. 15 og 23 (dansk tid)
+const EVENT_MIN_SPILLERE = 3;
+config.events = config.events || { auto: true, naeste: 0, aktive: [] };
+config.events.aktive = config.events.aktive || [];
+const eventEmbed = (t, min, slut, kilde, slutter) => new EmbedBuilder().setColor(slutter ? 0x64748b : t.farve)
+  .setAuthor({ name: 'HOPDOP · Event' }).setTitle(`${t.emoji} ${t.navn}${slutter ? ' (slut)' : ''}`)
+  .setDescription(slutter ? 'Eventet er slut. Tak fordi I deltog! Vi ses ved næste event. 🎉' : `${t.besk(min)}${slut ? `\n\n⏳ Slutter <t:${Math.floor(slut / 1000)}:R>` : ''}\n🎮 \`${SERVER_IP}\``)
+  .setFooter({ text: kilde });
+async function startEvent(typeId, { min, kilde = 'Automatisk event' } = {}) {
+  const t = EVENT_TYPER[typeId];
+  if (!t || !botNoegle()) return false;
+  const m = min || t.min;
+  try { await postPrivat('bro', { type: 'kommando', kommando: t.kmd(m), af: kilde }); }
+  catch (e) { console.error('Event:', e.message); return false; }
+  const slut = m ? Date.now() + m * 60000 : 0;
+  let msgId = null;
+  try {
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    const kanal = config.kanaler.events && await guild.channels.fetch(config.kanaler.events).catch(() => null);
+    if (kanal) msgId = (await sendPing(kanal, 'Events', { embeds: [eventEmbed(t, m, slut, kilde, false)] }).catch(() => null))?.id || null;
+  } catch (e) { console.error('Event-besked:', e.message); }
+  config.events.aktive.push({ type: typeId, min: m, slut: slut || Date.now() + 10 * 60000, msg: msgId, kilde, tidsstyret: !!slut });
+  gemCfg();
+  devlogDiscord(`🎪 Event startet: **${t.navn}** (${kilde})`);
+  return true;
+}
+async function tjekEvents() {
+  try {
+    const nu = Date.now(), ev = config.events;
+    // Afslut events (ret beskeden i #events)
+    for (const a of ev.aktive.filter(x => x.slut <= nu)) {
+      const t = EVENT_TYPER[a.type];
+      if (t && a.msg && config.kanaler.events) {
+        const kanal = await client.channels.fetch(config.kanaler.events).catch(() => null);
+        const msg = kanal && await kanal.messages.fetch(a.msg).catch(() => null);
+        if (msg) await msg.edit({ embeds: [eventEmbed(t, a.min, 0, a.kilde, true)] }).catch(() => {});
+      }
+    }
+    const foer = ev.aktive.length;
+    ev.aktive = ev.aktive.filter(x => x.slut > nu);
+    if (ev.aktive.length !== foer) gemCfg();
+    // Næste automatiske event
+    if (!ev.auto) return;
+    if (!ev.naeste) { ev.naeste = nu + 90 * 60000; gemCfg(); return; }
+    if (nu < ev.naeste) return;
+    const time = Number(new Date().toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', hour: 'numeric', hour12: false }));
+    const udsat = () => { ev.naeste = nu + 20 * 60000; gemCfg(); };
+    if (time < EVENT_TID.fra || time >= EVENT_TID.til || ev.aktive.some(x => x.tidsstyret)) return udsat();
+    let online = null; try { online = ((await hentWeb('stats')).online || []).length; } catch { /* hjemmesiden svarer ikke */ }
+    if (online === null || online < EVENT_MIN_SPILLERE) return udsat();
+    const total = Object.values(EVENT_TYPER).reduce((s, t) => s + t.vaegt, 0);
+    let r = Math.random() * total, valgt = 'dobbelt';
+    for (const [id, t] of Object.entries(EVENT_TYPER)) { if ((r -= t.vaegt) < 0) { valgt = id; break; } }
+    ev.naeste = nu + (120 + Math.floor(Math.random() * 120)) * 60000; // 2-4 timer til næste
+    gemCfg();
+    await startEvent(valgt);
+  } catch (e) { console.error('Auto-events:', e.message); }
+}
+async function autoeventKommando(i) {
+  const h = i.options.getString('handling'), ev = config.events;
+  if (h === 'start') {
+    const typeId = i.options.getString('type');
+    if (!typeId) return i.reply({ content: 'Vælg også hvilket event, der skal starte.', flags: MessageFlags.Ephemeral });
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const ok = await startEvent(typeId, { min: i.options.getInteger('minutter') || undefined, kilde: `Startet af ${i.user.username}` });
+    return i.editReply(ok ? `✅ **${EVENT_TYPER[typeId].navn}** er sendt til serveren og skrevet i <#${config.kanaler.events}>.` : '❌ Kunne ikke sende eventet til serveren. Kører DiscordBro.sk?');
+  }
+  if (h === 'stop') {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    try { await postPrivat('bro', { type: 'kommando', kommando: 'autoevent stop', af: i.user.username }); } catch (e) { return i.editReply(`❌ ${e.message}`); }
+    for (const a of ev.aktive) if (a.tidsstyret) a.slut = Date.now();
+    gemCfg(); tjekEvents();
+    return i.editReply('✅ Kill-penge-eventet er stoppet.');
+  }
+  if (h === 'til' || h === 'fra') {
+    ev.auto = h === 'til'; if (ev.auto) ev.naeste = Date.now() + 30 * 60000; gemCfg();
+    return i.reply({ content: ev.auto ? '✅ Automatiske events er slået til (første om ca. 30 min.).' : '🛑 Automatiske events er slået fra.', flags: MessageFlags.Ephemeral });
+  }
+  const aktive = ev.aktive.map(a => `${EVENT_TYPER[a.type]?.emoji || '🎪'} **${EVENT_TYPER[a.type]?.navn || a.type}**${a.tidsstyret ? ` · slutter <t:${Math.floor(a.slut / 1000)}:R>` : ''}`);
+  return i.reply({ flags: MessageFlags.Ephemeral, embeds: [new EmbedBuilder().setColor(0xfbbf24).setTitle('🎪 Auto-events')
+    .setDescription([`Automatiske events: **${ev.auto ? 'til' : 'fra'}**`, ev.auto && ev.naeste ? `Næste forsøg: <t:${Math.floor(ev.naeste / 1000)}:R> (kun kl. ${EVENT_TID.fra}-${EVENT_TID.til}, mindst ${EVENT_MIN_SPILLERE} online)` : '',
+      '', aktive.length ? '**Kører nu:**\n' + aktive.join('\n') : 'Der kører ikke noget event lige nu.'].filter(x => x !== '').join('\n'))] });
+}
+
+// ---------- BOOST-BELØNNINGER ----------
+// Discords niveauer (2 / 7 / 14 boosts) + HOPDOP's egne trin. Ret tallene her, så ændrer #boosts og belønningerne sig.
+const BOOST_TRIN = [
+  { n: 1,  titel: 'Første boost',   discord: [], hopdop: ['💜 Booster-rolle og adgang til 💜┃booster-lounge', '🎨 Egen rollefarve med /boosterfarve'], event: { type: 'dobbelt', min: 30 } },
+  { n: 2,  titel: 'Niveau 1',       discord: ['100 emoji-pladser', 'Animeret server-ikon', 'Bedre lyd (128 kbps)'], hopdop: [], event: { type: 'dobbelt', min: 60 } },
+  { n: 4,  titel: 'Beacon-bonus',   discord: [], hopdop: ['📡 Ekstra Beacon Drop ingame'], event: { type: 'beacon' } },
+  { n: 7,  titel: 'Niveau 2',       discord: ['Server-banner øverst i kanallisten', 'Rolleikoner (botten sætter HOPDOP-ikoner på alle ranks)', '150 emoji-pladser', 'Bedre lyd (256 kbps)', 'Uploads op til 50 MB'], hopdop: [], event: { type: 'tredobbelt', min: 60 } },
+  { n: 10, titel: 'Mega-weekend',   discord: [], hopdop: ['💰 Dobbelt kill-penge i 3 timer'], event: { type: 'dobbelt', min: 180 } },
+  { n: 14, titel: 'Niveau 3',       discord: ['Eget invite-link (vanity URL)', 'Animeret banner', '250 emoji-pladser', 'Bedste lyd (384 kbps)'], hopdop: [], event: { type: 'tredobbelt', min: 120 } },
+];
+const eventTekst = e => e ? `${EVENT_TYPER[e.type].emoji} ${EVENT_TYPER[e.type].navn}${e.min ? ` i ${e.min >= 60 && e.min % 60 === 0 ? `${e.min / 60} time${e.min > 60 ? 'r' : ''}` : `${e.min} min`}` : ''}` : '';
+const BOOST_ROLLE = 'Booster';
+async function boosterRolle(guild) {
+  let r = config.boost?.rolle && guild.roles.cache.get(config.boost.rolle);
+  if (!r) r = guild.roles.cache.find(x => x.name === BOOST_ROLLE && !x.managed);
+  if (!r) r = await guild.roles.create({ name: BOOST_ROLLE, color: 0xf47fff, hoist: true, permissions: [], mentionable: false, reason: 'Rolle til boosters' }).catch(e => { console.error('Booster-rolle:', e.message); return null; });
+  if (!r) return null;
+  config.boost = config.boost || {};
+  if (config.boost.rolle !== r.id) { config.boost.rolle = r.id; gemCfg(); }
+  const spiller = config.roller && guild.roles.cache.get(config.roller['Spiller']);
+  if (spiller && r.position <= spiller.position) await r.setPosition(spiller.position + 1).catch(() => {});
+  return r;
+}
+async function boosterLounge(guild, r) {
+  let k = config.kanaler.boosterlounge && await guild.channels.fetch(config.kanaler.boosterlounge).catch(() => null);
+  if (k) return k;
+  const parent = (await guild.channels.fetch(config.kanaler.boosts).catch(() => null))?.parentId;
+  k = await guild.channels.create({ name: '💜┃booster-lounge', type: ChannelType.GuildText, parent: parent || undefined, topic: 'Kun for boosters. Tak fordi du støtter HOPDOP! 💜',
+    permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: r.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.AddReactions] },
+      ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] }))] }).catch(e => { console.error('Booster-lounge:', e.message); return null; });
+  if (!k) return null;
+  config.kanaler.boosterlounge = k.id; gemCfg();
+  await k.send({ embeds: [new EmbedBuilder().setColor(0xf47fff).setTitle('💜 Velkommen i booster-lounge!')
+    .setDescription('Det her er et sted kun for dem, der booster HOPDOP. Tusind tak for støtten!\n\n**Dine fordele**\n💜 Booster-rolle, der vises for sig i medlemslisten\n🎨 Vælg din egen rollefarve med `/boosterfarve`\n🎁 Hver boost bringer os tættere på nye events og Discord-fordele (se <#' + config.kanaler.boosts + '>)')] }).catch(() => {});
+  return k;
+}
+async function synkBoostere(guild) {
+  try {
+    const r = await boosterRolle(guild);
+    if (!r) return;
+    await boosterLounge(guild, r);
+    const medl = await guild.members.fetch();
+    config.boost.farver = config.boost.farver || {};
+    for (const m of medl.values()) {
+      if (m.user.bot) continue;
+      const bo = !!m.premiumSince;
+      if (bo && !m.roles.cache.has(r.id)) await m.roles.add(r, 'Booster serveren').catch(e => console.error('Booster:', e.message));
+      if (!bo && m.roles.cache.has(r.id)) await m.roles.remove(r, 'Booster ikke længere').catch(() => {});
+      if (!bo && config.boost.farver[m.id]) { await guild.roles.cache.get(config.boost.farver[m.id])?.delete('Booster ikke længere').catch(() => {}); delete config.boost.farver[m.id]; gemCfg(); }
+    }
+  } catch (e) { console.error('Boostere:', e.message); }
+}
+async function boosterFarve(i) {
+  const m = i.member, hex = i.options.getString('farve').replace('#', '').trim();
+  if (!m.premiumSince) return i.reply({ content: 'Kun dem, der booster HOPDOP, kan bruge den her. 💜', flags: MessageFlags.Ephemeral });
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return i.reply({ content: 'Skriv en hex-farve med 6 tegn, fx `ff66cc`.', flags: MessageFlags.Ephemeral });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  const br = await boosterRolle(i.guild);
+  config.boost.farver = config.boost.farver || {};
+  let r = config.boost.farver[m.id] && i.guild.roles.cache.get(config.boost.farver[m.id]);
+  if (r) await r.setColor(parseInt(hex, 16)).catch(() => {});
+  else {
+    r = await i.guild.roles.create({ name: `💜 ${m.displayName}`.slice(0, 100), color: parseInt(hex, 16), permissions: [], reason: 'Boosterfarve' }).catch(() => null);
+    if (!r) return i.editReply('Kunne ikke lave rollen. Mangler botten rettigheder?');
+    if (br) await r.setPosition(br.position + 1).catch(() => {});
+    config.boost.farver[m.id] = r.id; gemCfg();
+  }
+  await m.roles.add(r).catch(() => {});
+  return i.editReply(`🎨 Din farve er sat til **#${hex.toLowerCase()}**. Staff-ranks med farve vises stadig først, hvis du har en.`);
+}
+const bar = (a, b, bredde = 10) => { const f = Math.max(0, Math.min(bredde, Math.round(a / b * bredde))); return '█'.repeat(f) + '░'.repeat(bredde - f); };
+async function tjekBoostMaal(guild) {
+  try {
+    guild = await guild.fetch().catch(() => guild);
+    const n = guild.premiumSubscriptionCount || 0;
+    config.boost = config.boost || {};
+    if (!Array.isArray(config.boost.opnaaet)) { config.boost.opnaaet = BOOST_TRIN.filter(t => t.n <= n).map(t => t.n); gemCfg(); return; } // første gang: ingen gamle events
+    const faldet = config.boost.opnaaet.filter(x => x > n);
+    if (faldet.length) { config.boost.opnaaet = config.boost.opnaaet.filter(x => x <= n); gemCfg(); }
+    for (const t of BOOST_TRIN.filter(x => x.n <= n && !config.boost.opnaaet.includes(x.n))) {
+      config.boost.opnaaet.push(t.n); gemCfg();
+      const kanal = await boostKanal(guild);
+      const dele = [`🎉 **HOPDOP har nu ${t.n} boost${t.n > 1 ? 's' : ''}!** (${t.titel})`];
+      if (t.discord.length) dele.push('✨ Nyt på Discord: ' + t.discord.join(' · '));
+      if (t.hopdop.length) dele.push('🎮 Nyt på serveren: ' + t.hopdop.join(' · '));
+      if (t.event) dele.push(`🎁 Belønning lige nu: **${eventTekst(t.event)}** – tak til alle boosters!`);
+      await kanal.send({ content: dele.join('\n'), allowedMentions: { parse: [] } }).catch(() => {});
+      if (t.event) await startEvent(t.event.type, { min: t.event.min, kilde: `Boost-belønning (${t.n} boosts)` });
+    }
+    await opdaterBoostHoved(guild);
+  } catch (e) { console.error('Boost-mål:', e.message); }
+}
+
 client.once('clientReady', async () => {
   console.log('Online som', client.user.tag);
   client.user.setPresence({ activities: [{ name: 'Hopdop', type: ActivityType.Playing }], status: 'online' });
@@ -2536,6 +2866,9 @@ client.once('clientReady', async () => {
   await opdaterServerStatus(); setInterval(opdaterServerStatus, 2 * 60000);
   await opdaterStatsKategori(); setInterval(opdaterStatsKategori, 10 * 60000);
   await opdaterLinkKanal(guild).catch(e => console.error('#link:', e.message));
+  await synkBoostere(guild);
+  await tjekBoostMaal(guild); setInterval(() => synkBoostere(guild), 10 * 60000);
+  tjekEvents(); setInterval(tjekEvents, 60000);
   await opdaterBoostHoved(guild);
   await saetBotLogo();
   await opdaterLiveChatAdgang(guild).catch(e => console.error('#live-chat:', e.message));
@@ -2665,6 +2998,15 @@ client.on('interactionCreate', async i => {
         return i.reply({ content: `Brug kommandoer i <#${config.kanaler.botcmd}> 🙂`, flags: MessageFlags.Ephemeral });
       if (i.commandName === 'link') return i.reply(linkSvar(i.user.id));
       if (i.commandName === 'unlink') return i.reply(await unlinkSvar(i.guild, i.user.id));
+      if (i.commandName === 'ign') return i.reply(ignSvar(i));
+      if (i.commandName === 'boosterfarve') return boosterFarve(i);
+      if (i.commandName === 'faction') {
+        if (!botNoegle()) return i.reply({ content: 'BOT_NOEGLE mangler i .env.', flags: MessageFlags.Ephemeral });
+        const fnavn = (i.options.getString('navn') || '').replace(/[\r\n]+/g, ' ').trim();
+        if (!fnavn) return tilServer(i, 'dc:factiontop', 'Top 10 teams', false, { fmt: factionSvar, log: false });
+        if (!/^[\p{L}\p{N}_ .-]{1,32}$/u.test(fnavn)) return i.reply({ content: 'Det er ikke et gyldigt team-navn.', flags: MessageFlags.Ephemeral });
+        return tilServer(i, `dc:faction ${fnavn}`, `Team ${fnavn}`, false, { fmt: factionSvar, log: false });
+      }
       if (i.commandName === 'top' || i.commandName === 'online') {
         await i.deferReply();
         const emb = await (i.commandName === 'top' ? lavTopEmbed(i.options.getString('liste')) : lavOnlineEmbed())
@@ -2752,6 +3094,7 @@ client.on('interactionCreate', async i => {
             const h = i.options.getString('handling'), sek = i.options.getInteger('sekunder');
             return tilServer(i, `genstart ${h}${h === 'start' && sek ? ` ${sek}` : ''}`, `Genstart: ${h}${sek && h === 'start' ? ` (${sek} sek.)` : ''}`);
           }
+          case 'autoevent': return autoeventKommando(i);
           case 'beacondrop': return tilServer(i, `bd ${i.options.getString('handling')}`, `Beacon Drop: ${i.options.getString('handling')}`);
           case 'broadcast': return tilServer(i, `bc ${ren(i.options.getString('besked'))}`, 'Broadcast');
           case 'sig': {
