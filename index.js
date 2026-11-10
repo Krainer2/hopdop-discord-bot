@@ -894,9 +894,11 @@ async function saetBotLogo() {
 const ANSOG_LINKS = [['Staff', 'staff', '🛡️'], ['Bygger', 'bygger', '🔨'], ['Unban', 'unban', '🔓']];
 async function opdaterPanel(kanal, find, besked) {
   const gamle = await kanal.messages.fetch({ limit: 30 }).catch(() => null);
-  const m = gamle?.find(x => x.author.id === client.user.id && x.embeds[0]?.title === find);
-  if (m) return m.edit(besked).catch(e => console.error('Panel:', e.message));
-  return kanal.send(besked).catch(e => console.error('Panel:', e.message));
+  const fastgjort = await kanal.messages.fetchPinned().catch(() => null);
+  const m = gamle?.find(x => x.author.id === client.user.id && x.embeds[0]?.title === find)
+    || fastgjort?.find(x => x.author.id === client.user.id && x.embeds[0]?.title === find);
+  if (m) return m.edit(besked).catch(e => { console.error('Panel:', e.message); return null; });
+  return kanal.send(besked).catch(e => { console.error('Panel:', e.message); return null; });
 }
 // Ingen roller kan pinges af spillere, og @everyone/@here er slået fra for alle uden for staff
 async function laasPings(guild) {
@@ -942,6 +944,19 @@ async function opsaetRettigheder(guild) {
         .setFooter({ text: 'HOPDOP · hopdop.pages.dev' })],
       components: [new ActionRowBuilder().addComponents(ANSOG_LINKS.map(([n, t, e]) => new ButtonBuilder().setLabel(n).setEmoji(e).setStyle(ButtonStyle.Link).setURL(`${WEB}/ansog.html?type=${t}`)))],
     });
+  }
+  // #forslag: spillere kan kun reagere. Forslag laves med /forslag i #bot-kommandoer
+  const fo = config.kanaler.forslag && await guild.channels.fetch(config.kanaler.forslag).catch(() => null);
+  if (fo) {
+    const lås = { SendMessages: false, AddReactions: true, CreatePublicThreads: false, CreatePrivateThreads: false, SendMessagesInThreads: false };
+    await fo.permissionOverwrites.edit(guild.roles.everyone.id, lås).catch(() => {});
+    if (spiller) await fo.permissionOverwrites.edit(spiller.id, lås).catch(() => {});
+    await fo.setTopic(`Stem på forslag med reaktioner. Lav et forslag: gå ind i #bot-kommandoer og skriv /forslag`).catch(() => {});
+    const info = await opdaterPanel(fo, '💡 Sådan laver du et forslag', {
+      embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('💡 Sådan laver du et forslag')
+        .setDescription(`Gå ind i <#${config.kanaler.botcmd}> og skriv **/forslag** for at lave et forslag.\nHer i kanalen kan du stemme med reaktioner på andres forslag.`)],
+    });
+    if (info?.pin && !info.pinned) info.pin().catch(() => {});
   }
   // Ticket-panel med fejlrapport
   const tk = config.kanaler.ticket && await guild.channels.fetch(config.kanaler.ticket).catch(() => null);
@@ -1644,7 +1659,7 @@ client.on('interactionCreate', async i => {
         const slettet = await i.channel.bulkDelete(i.options.getInteger('antal'), true).catch(e => { console.error('/cc:', e.message); return null; });
         if (!slettet) return i.editReply('❌ Kunne ikke rydde her. Mangler jeg rettigheden Administrer beskeder?');
         // Rydder du en kanal med et panel (ansøgninger, fejlrapporter, opret-ticket), sætter botten panelet op igen
-        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket].includes(i.channelId)) {
+        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket, config.kanaler.forslag].includes(i.channelId)) {
           const g = i.guild; opsaetRettigheder(g).catch(() => {}).then(() => opsaetSupport(g)).catch(() => {});
         }
         return i.editReply(`🧹 Ryddede **${slettet.size}** ${slettet.size === 1 ? 'besked' : 'beskeder'}.${slettet.size < i.options.getInteger('antal') ? '\n(Beskeder ældre end 14 dage kan Discord ikke slette i bulk.)' : ''}`);
