@@ -975,20 +975,45 @@ async function opsaetRettigheder(guild) {
 
 // ================= SUPPORT-RUM OG AKTIVE TICKETS =================
 const SUPPORT_RUM = [1, 2, 3, 4, 5].map(n => `🎧┃Support ${n}`);
+const VENTE_RUM = '⏳┃Afventer support';
+const TILKALD_KANAL = '🔔┃support-afventer';
 const AKTIVE_KAT = '🎫 AKTIVE TICKETS';
 const AKTIVE_KANAL = '📋┃aktive-tickets';
 async function opsaetSupport(guild) {
   await guild.channels.fetch(); await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
   const staffOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.Connect, P.Speak, P.MoveMembers, P.MuteMembers, P.ReadMessageHistory] }));
-  // Support-voice 1-5 i Support-kategorien: spillere kan joine, staff kan flytte og hjælpe
+  // Support 1-5: spillere kan IKKE joine selv - staff trækker dem ned fra "Afventer support"
   const sup = config.kanaler.support;
+  const spillerSup = spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.Speak, P.UseVAD], deny: [P.Connect] }] : [];
   for (const navn of SUPPORT_RUM) {
-    if (guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === sup && c.name === navn)) continue;
-    await guild.channels.create({ name: navn, type: ChannelType.GuildVoice, parent: sup, permissionOverwrites: [
-      { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
-      ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.Connect, P.Speak, P.UseVAD] }] : []), ...staffOw] }).catch(e => console.error('Support-rum:', e.message));
+    const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel, P.Connect] }, ...spillerSup, ...staffOw];
+    const fundet = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === sup && c.name === navn);
+    if (fundet) await fundet.permissionOverwrites.set(ow).catch(() => {});
+    else await guild.channels.create({ name: navn, type: ChannelType.GuildVoice, parent: sup, permissionOverwrites: ow }).catch(e => console.error('Support-rum:', e.message));
   }
+  // Ventrum: her joiner spillerne og venter på staff
+  const venteOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.Connect, P.Speak, P.UseVAD] }] : []), ...staffOw];
+  const vente = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === VENTE_RUM);
+  if (vente) await vente.permissionOverwrites.set(venteOw).catch(() => {});
+  else await guild.channels.create({ name: VENTE_RUM, type: ChannelType.GuildVoice, parent: sup, position: 0, permissionOverwrites: venteOw }).catch(e => console.error('Ventrum:', e.message));
+  // Tilkald-kanal: spillere kan tilkalde staff med en knap (5 min cooldown)
+  let tk = guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.parentId === sup && (c.name === TILKALD_KANAL || c.name === TILKALD_KANAL.toLowerCase().replace(/ /g, '-')));
+  const tkOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory] },
+    ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions, P.CreatePublicThreads, P.CreatePrivateThreads] }] : []),
+    ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] }))];
+  if (tk) await tk.permissionOverwrites.set(tkOw).catch(() => {});
+  else tk = await guild.channels.create({ name: TILKALD_KANAL, type: ChannelType.GuildText, parent: sup, topic: 'Brug knappen for at tilkalde staff. Gå derefter ind i "Afventer support" i talekanalerne.', permissionOverwrites: tkOw }).catch(e => { console.error('Tilkald-kanal:', e.message); return null; });
+  if (tk) {
+    config.kanaler.tilkald = tk.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    await opdaterPanel(tk, '🔔 Support afventer', {
+      embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🔔 Support afventer')
+        .setDescription('Har du brug for hjælp af en fra staff?\n\n**1.** Tryk på knappen og skriv kort, hvad du har brug for hjælp til.\n**2.** Gå ind i talekanalen **⏳┃Afventer support**.\n**3.** En fra staff trækker dig ned i et support-rum.\n\nDu kan tilkalde staff hver 5. minut.')],
+      components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('tilkald').setLabel('Tilkald staff').setEmoji('🔔').setStyle(ButtonStyle.Success))],
+    });
+  }
+  // Screenshare: kun dem med rollen (staff + midlertidigt), alle andre mister Stream-rettigheden
+  await opsaetScreenshare(guild);
   // Staff-kategori med liste over aktive tickets
   let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AKTIVE_KAT);
   const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory] },
@@ -1027,7 +1052,10 @@ async function opdaterAktive(guild) {
       const folk = [...v.members.values()].map(m => m.toString());
       return `${folk.length ? '🔴' : '🟢'} ${v} · ${folk.length ? folk.join(', ') : 'ledigt'}`;
     }).filter(Boolean);
-    const venter = rum.some(r => r.startsWith('🔴'));
+    const vv = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === VENTE_RUM);
+    const ventende = vv ? [...vv.members.values()].map(m => m.toString()) : [];
+    rum.unshift(`${ventende.length ? '🟠' : '⚪'} ${vv || VENTE_RUM} · ${ventende.length ? `**${ventende.length} venter:** ${ventende.join(', ')}` : 'ingen venter'}`);
+    const venter = ventende.length > 0 || rum.some(r => r.startsWith('🔴'));
     const emb = new EmbedBuilder().setColor(tickets.size || venter ? 0xf59e0b : 0x57f287).setTitle('📋 Aktive tickets')
       .setDescription(tickets.size ? linjer.join('\n') : '✅ Ingen åbne tickets lige nu.')
       .addFields({ name: '🎧 Support-rum', value: rum.join('\n') || 'Ingen support-rum fundet.' })
@@ -1038,15 +1066,66 @@ async function opdaterAktive(guild) {
 // Når en spiller joiner et support-rum, får staff en besked (og listen opdateres)
 client.on('voiceStateUpdate', async (gl, ny) => {
   if (gl.channelId === ny.channelId) return;
-  const rum = ny.channel && SUPPORT_RUM.includes(ny.channel.name) ? ny.channel : null;
+  const rum = ny.channel && ny.channel.name === VENTE_RUM ? ny.channel : null;
   if (rum && !ny.member.user.bot) {
     const k = config.kanaler.aktive && await ny.guild.channels.fetch(config.kanaler.aktive).catch(() => null);
-    const besked = await k?.send({ content: `🔔 ${ny.member} venter i ${rum} og har brug for hjælp.`, allowedMentions: { parse: [] } }).catch(() => null);
+    const besked = await k?.send({ content: `🔔 ${ny.member} venter i ${rum} – træk dem ned i et support-rum.`, allowedMentions: { parse: [] } }).catch(() => null);
     if (besked) setTimeout(() => besked.delete().catch(() => {}), 10 * 60000);
   }
   if (Date.now() - aktiveTid > 2000) { aktiveTid = Date.now(); setTimeout(() => opdaterAktive(), 1500); }
 });
 
+// ================= SCREENSHARE-ROLLE (midlertidig) =================
+const SS_FIL = 'screenshare.json';
+let ssData = (() => { try { return JSON.parse(fs.readFileSync(SS_FIL, 'utf8')); } catch { return {}; } })(); // brugerId -> udløb (ms)
+const gemSs = () => fs.writeFileSync(SS_FIL, JSON.stringify(ssData));
+async function ssRolle(guild) {
+  await guild.roles.fetch();
+  return guild.roles.cache.find(r => r.name === 'Screenshare')
+    || await guild.roles.create({ name: 'Screenshare', color: 0x06b6d4, permissions: [P.Stream], mentionable: false, hoist: false, reason: 'HOPDOP screenshare' }).catch(e => { console.error('Screenshare-rolle:', e.message); return null; });
+}
+async function opsaetScreenshare(guild) {
+  const ss = await ssRolle(guild); if (!ss) return;
+  const ev = guild.roles.everyone;
+  if (ev.permissions.has(P.Stream)) await ev.setPermissions(ev.permissions.remove(P.Stream)).catch(() => {});
+  for (const r of guild.roles.cache.values()) {
+    if (r.id === ev.id || r.managed || r.id === ss.id) continue;
+    const staff = STAFF.includes(r.id);
+    if (staff && !r.permissions.has(P.Stream)) await r.setPermissions(r.permissions.add(P.Stream)).catch(() => {});
+    if (!staff && r.permissions.has(P.Stream) && !r.permissions.has(P.Administrator)) await r.setPermissions(r.permissions.remove(P.Stream)).catch(() => {});
+  }
+}
+async function tjekScreenshare() {
+  const nu = Date.now();
+  const udloebet = Object.entries(ssData).filter(([, t]) => t <= nu);
+  if (!udloebet.length) return;
+  const guild = await client.guilds.fetch(process.env.GUILD_ID);
+  const rolle = await ssRolle(guild); if (!rolle) return;
+  for (const [id] of udloebet) {
+    const m = await guild.members.fetch(id).catch(() => null);
+    if (m) {
+      await m.roles.remove(rolle, 'Screenshare udløbet').catch(() => {});
+      if (m.voice?.channel && m.voice.streaming) await m.voice.setChannel(m.voice.channel).catch(() => {});
+      m.send('⏱️ Din adgang til at screenshare på HOPDOP er udløbet.').catch(() => {});
+    }
+    delete ssData[id];
+  }
+  gemSs();
+}
+// ================= TILKALD STAFF (5 min cooldown) =================
+const tilkaldCooldown = new Map(); // brugerId -> sidste gang
+const TILKALD_VENT = 5 * 60000;
+async function tilkaldStaff(i, grund) {
+  const guild = i.guild;
+  const kanal = await guild.channels.fetch(config.kanaler.aktive).catch(() => null) || i.channel;
+  const roller = ['Hjælper', 'Mod', 'Admin'].map(n => guild.roles.cache.find(r => r.name === n)).filter(Boolean);
+  for (const r of roller) await r.setMentionable(true).catch(() => {});
+  try {
+    await kanal.send({ content: roller.map(r => `<@&${r.id}>`).join(' '), allowedMentions: { roles: roller.map(r => r.id) },
+      embeds: [new EmbedBuilder().setColor(0xf59e0b).setTitle('🔔 Spiller har brug for hjælp')
+        .setDescription(`${i.user} har tilkaldt staff.${grund ? `\n\n**Hvad:** ${grund}` : ''}\n\nTræk dem ned fra <#${(guild.channels.cache.find(c => c.name === VENTE_RUM) || {}).id || 'ventrum'}> når I er klar.`)] });
+  } finally { for (const r of roller) r.setMentionable(false).catch(() => {}); }
+}
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
 // Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
 // til alle der har en rolle i gruppen, og giver roller ud fra "tildel" (Discord-brugernavn -> roller).
@@ -1430,6 +1509,11 @@ const kommandoer = [
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Slå til', value: 'til' }, { name: 'Slå fra (vis ordene)', value: 'fra' }, { name: 'Status', value: 'status' }))
     .setDefaultMemberPermissions(P.ManageMessages),
+  new SlashCommandBuilder().setName('screenshare').setDescription('Giv eller fjern adgang til at screenshare (staff)')
+    .addUserOption(o => o.setName('bruger').setDescription('Hvem?').setRequired(true))
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Giv i 30 minutter', value: '30' }, { name: 'Giv i 1 time', value: '60' }, { name: 'Fjern nu', value: 'fjern' }))
+    .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('cc').setDescription('Ryd de sidste beskeder i denne kanal (staff)')
     .addIntegerOption(o => o.setName('antal').setDescription('Hvor mange beskeder? (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
     .setDefaultMemberPermissions(P.ManageMessages),
@@ -1464,6 +1548,7 @@ client.once('clientReady', async () => {
   await synkRollerFil(true); setInterval(synkRollerFil, 60000);
   await opsaetRettigheder(guild).catch(e => console.error('Rettigheder:', e.message));
   await opsaetSupport(guild).catch(e => console.error('Support:', e.message)); setInterval(() => opdaterAktive(), 60000);
+  tjekScreenshare(); setInterval(tjekScreenshare, 30000);
   setInterval(() => laasPings(guild).catch(() => {}), 5 * 60000);
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
@@ -1521,6 +1606,13 @@ client.on('interactionCreate', async i => {
     }
 
     // ---------- DEVLOG: MODAL ----------
+    if (i.isModalSubmit() && i.customId === 'tilkald_modal') {
+      const sidst = tilkaldCooldown.get(i.user.id) || 0;
+      if (Date.now() - sidst < TILKALD_VENT) return i.reply({ content: `⏳ Du kan tilkalde staff igen om ${Math.ceil((TILKALD_VENT - (Date.now() - sidst)) / 60000)} min.`, flags: MessageFlags.Ephemeral });
+      tilkaldCooldown.set(i.user.id, Date.now());
+      await tilkaldStaff(i, i.fields.getTextInputValue('grund').slice(0, 300).replace(/\n/g, ' '));
+      return i.reply({ content: '✅ Staff er tilkaldt! Gå ind i talekanalen **⏳┃Afventer support**, så trækker en fra staff dig ned.', flags: MessageFlags.Ephemeral });
+    }
     if (i.isModalSubmit() && i.customId === 'devlog_modal') {
       const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
       if (!kanal) return i.reply({ content: '#dev-log findes ikke.', flags: MessageFlags.Ephemeral });
@@ -1653,13 +1745,27 @@ client.on('interactionCreate', async i => {
           + `• Live-chat: ${censurTil ? 'grove ord vises som spoilers' : 'ordene vises som de er'}\n`
           + `• Discord-chatten: ${!censurTil ? 'ikke censureret' : MESSAGE_CONTENT ? 'grove ord bliver til spoilers' : '⚠️ virker ikke endnu – slå **Message Content Intent** til i Developer Portal (Bot) og genstart botten'}` });
       }
+      if (i.commandName === 'screenshare') {
+        if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan styre screenshare.', flags: MessageFlags.Ephemeral });
+        const bruger = i.options.getMember('bruger'); const h = i.options.getString('handling');
+        if (!bruger) return i.reply({ content: 'Fandt ikke brugeren på serveren.', flags: MessageFlags.Ephemeral });
+        const rolle = await ssRolle(i.guild); if (!rolle) return i.reply({ content: 'Kunne ikke finde/oprette rollen Screenshare.', flags: MessageFlags.Ephemeral });
+        if (h === 'fjern') {
+          await bruger.roles.remove(rolle).catch(() => {}); delete ssData[bruger.id]; gemSs();
+          return i.reply({ content: `🖥️ ${bruger} kan ikke screenshare længere.`, flags: MessageFlags.Ephemeral });
+        }
+        await bruger.roles.add(rolle, `Screenshare af ${i.user.username}`).catch(e => console.error('Screenshare:', e.message));
+        ssData[bruger.id] = Date.now() + Number(h) * 60000; gemSs();
+        logBro(i.user, `screenshare ${bruger.user.username} ${h} min`);
+        return i.reply({ content: `🖥️ ${bruger} må screenshare i **${h === '60' ? '1 time' : '30 minutter'}**. Så fjerner botten adgangen igen.`, flags: MessageFlags.Ephemeral });
+      }
       if (i.commandName === 'cc') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan rydde chatten.', flags: MessageFlags.Ephemeral });
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const slettet = await i.channel.bulkDelete(i.options.getInteger('antal'), true).catch(e => { console.error('/cc:', e.message); return null; });
         if (!slettet) return i.editReply('❌ Kunne ikke rydde her. Mangler jeg rettigheden Administrer beskeder?');
         // Rydder du en kanal med et panel (ansøgninger, fejlrapporter, opret-ticket), sætter botten panelet op igen
-        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket, config.kanaler.forslag].includes(i.channelId)) {
+        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket, config.kanaler.forslag, config.kanaler.tilkald].includes(i.channelId)) {
           const g = i.guild; opsaetRettigheder(g).catch(() => {}).then(() => opsaetSupport(g)).catch(() => {});
         }
         return i.editReply(`🧹 Ryddede **${slettet.size}** ${slettet.size === 1 ? 'besked' : 'beskeder'}.${slettet.size < i.options.getInteger('antal') ? '\n(Beskeder ældre end 14 dage kan Discord ikke slette i bulk.)' : ''}`);
@@ -1690,6 +1796,12 @@ client.on('interactionCreate', async i => {
     }
 
     if (!i.isButton()) return;
+    if (i.customId === 'tilkald') {
+      const sidst = tilkaldCooldown.get(i.user.id) || 0;
+      if (Date.now() - sidst < TILKALD_VENT) return i.reply({ content: `⏳ Du kan tilkalde staff igen om ${Math.ceil((TILKALD_VENT - (Date.now() - sidst)) / 60000)} min.`, flags: MessageFlags.Ephemeral });
+      return i.showModal(new ModalBuilder().setCustomId('tilkald_modal').setTitle('Tilkald staff').addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('grund').setLabel('Hvad har du brug for hjælp til?').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200))));
+    }
 
     // ---------- GIVEAWAY ----------
     if (i.customId === 'gw') {
