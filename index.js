@@ -1100,7 +1100,7 @@ async function afslutFejlTraad(guild, ticketKanalId) {
 // Onboarding: nye vælger selv, hvad de vil have ping om (giver rollerne automatisk)
 // Åben "Velkommen"-kategori: Discord kræver mindst 5 skrivbare standardkanaler til onboarding, og resten af serveren er låst
 const AABEN_KAT = '👋┃Velkommen';
-const AABNE_KANALER = [['💬┃snak', 'Snak løst med alle - husk reglerne'], ['❓┃spørgsmål', 'Spørg om serveren, reglerne eller spillet'], ['🎮┃find-spillere', 'Find nogen at spille med'], ['📸┃screenshots', 'Del billeder fra serveren'], ['😂┃sjov', 'Sjove billeder og klip']];
+const AABNE_KANALER = [['💬┃snak', 'Kun for nye: sig hej, indtil du er blevet spiller. Så får du adgang til de rigtige kanaler.'], ['❓┃spørgsmål', 'Spørg om serveren, reglerne eller spillet'], ['🎮┃find-spillere', 'Find nogen at spille med'], ['📸┃screenshots', 'Del billeder fra serveren'], ['😂┃sjov', 'Sjove billeder og klip']];
 async function opsaetAabenKategori(guild) {
   const alle = guild.roles.everyone;
   let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AABEN_KAT);
@@ -1113,6 +1113,16 @@ async function opsaetAabenKategori(guild) {
     if (k) ids.push(k.id);
   }
   return ids;
+}
+// De åbne Velkommen-kanaler er kun til nye: skjul dem for Spiller-rollen, så verificerede ikke ser dem som dubletter af de rigtige kanaler
+async function skjulAabenForSpillere(guild) {
+  const kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AABEN_KAT);
+  const spiller = config.roller && guild.roles.cache.get(config.roller['Spiller']);
+  if (!kat || !spiller) return;
+  for (const c of [kat, ...guild.channels.cache.filter(c => c.parentId === kat.id).values()]) {
+    if (c.permissionOverwrites.cache.get(spiller.id)?.deny.has(P.ViewChannel)) continue;
+    await c.permissionOverwrites.edit(spiller, { ViewChannel: false }, { reason: 'Velkommen-kanaler er kun til nye' }).catch(e => console.error('Skjul Velkommen:', e.message));
+  }
 }
 async function opsaetOnboarding(guild) {
   config.community = config.community || {};
@@ -1390,6 +1400,7 @@ async function opsaetSupport(guild) {
   await opsaetCommunity(guild).catch(e => console.error('opsaetCommunity:', e.message));
   await opsaetForummer(guild).catch(e => console.error('opsaetForummer:', e.message));
   await opsaetOnboarding(guild).catch(e => console.error('opsaetOnboarding:', e.message));
+  await skjulAabenForSpillere(guild).catch(e => console.error('skjulAaben:', e.message));
   await opsaetPynt(guild).catch(e => console.error('opsaetPynt:', e.message));
   await opsaetGoons(guild).catch(e => console.error('opsaetGoons:', e.message));
   await opsaetEmojiMappe(guild).catch(e => console.error('Emoji-mappe:', e.message));
