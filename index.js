@@ -1051,11 +1051,13 @@ async function opsaetForummer(guild) {
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
   const botOw = { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.CreatePublicThreads, P.ManageThreads, P.SendMessagesInThreads, P.EmbedLinks, P.AddReactions, P.ReadMessageHistory] };
   const staffOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.ManageThreads, P.AddReactions] }));
-  // Forslag-forum: alle kan læse, stemme og kommentere - nye forslag laves med /forslag
-  const fOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, botOw, ...staffOw,
-    ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AddReactions], deny: [P.SendMessages, P.CreatePublicThreads, P.CreatePrivateThreads] }] : [])];
-  const komm = config.kanaler.forslag && guild.channels.cache.get(config.kanaler.forslag)?.parentId;
-  await sikrForum(guild, 'forslagforum', '💡┃forslag-forum', FORSLAG_SKABELON, FORSLAG_TAGS, fOw, komm || undefined);
+  // Forslag-forummet er fjernet (forslag er tilbage som beskeder i #forslag) - slet det, hvis det findes
+  if (config.kanaler.forslagforum) {
+    const gammel = await guild.channels.fetch(config.kanaler.forslagforum).catch(() => null);
+    if (gammel) await gammel.delete('Forslag er tilbage som almindelig kanal').catch(e => console.error('Slet forslag-forum:', e.message));
+    delete config.kanaler.forslagforum; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('Forslag-forummet er slettet. Forslag sendes igen til #forslag.');
+  }
   // Fejlrapporter-forum: kun staff - hver fejlrapport-ticket får en tråd her
   const fejlOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, botOw, ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.CreatePublicThreads, P.SendMessagesInThreads, P.ManageThreads] }))];
   const staffKat = guild.channels.cache.get(config.kanaler.staffchat)?.parentId;
