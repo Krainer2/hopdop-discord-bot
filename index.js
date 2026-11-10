@@ -974,9 +974,13 @@ async function opsaetRettigheder(guild) {
 }
 
 // ================= SUPPORT-RUM OG AKTIVE TICKETS =================
-const SUPPORT_RUM = [1, 2, 3, 4, 5].map(n => `🎧┃Support ${n}`);
+const SUPPORT_RUM = [1, 2, 3, 4, 5].map(n => `⛔┃Support ${n}`);
+const gammelSupportNavn = n => n.replace('⛔', '🎧');
 const VENTE_RUM = '⏳┃Afventer support';
+const PRIVAT_KAT = '[ 🔐 ] PRIVATE RUM';
+const PRIVAT_KANAL = '🔐┃opret-privat-rum';
 const TILKALD_KANAL = '🔔┃support-afventer';
+const GAMLE_NAVNE = { '🔊 Lounge': '💬┃Hyggesnak', '🎮 Duo 1': '🎮┃Makkerrum 1', '🎮 Duo 2': '🎮┃Makkerrum 2', '🎪 Event': '🎪┃Eventrum' };
 const AKTIVE_KAT = '🎫 AKTIVE TICKETS';
 const AKTIVE_KANAL = '📋┃aktive-tickets';
 async function opsaetSupport(guild) {
@@ -988,8 +992,8 @@ async function opsaetSupport(guild) {
   const spillerSup = spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.Speak, P.UseVAD], deny: [P.Connect] }] : [];
   for (const navn of SUPPORT_RUM) {
     const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel, P.Connect] }, ...spillerSup, ...staffOw];
-    const fundet = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === sup && c.name === navn);
-    if (fundet) await fundet.permissionOverwrites.set(ow).catch(() => {});
+    const fundet = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === sup && (c.name === navn || c.name === gammelSupportNavn(navn)));
+    if (fundet) { if (fundet.name !== navn) await fundet.setName(navn).catch(() => {}); await fundet.permissionOverwrites.set(ow).catch(() => {}); }
     else await guild.channels.create({ name: navn, type: ChannelType.GuildVoice, parent: sup, permissionOverwrites: ow }).catch(e => console.error('Support-rum:', e.message));
   }
   // Ventrum: her joiner spillerne og venter på staff
@@ -1014,6 +1018,8 @@ async function opsaetSupport(guild) {
   }
   await opsaetStaffKanaler(guild);
   await opsaetAdmin(guild);
+  await opsaetStaffTale(guild);
+  await opsaetPrivat(guild);
   // Screenshare: kun dem med rollen (staff + midlertidigt), alle andre mister Stream-rettigheden
   await opsaetScreenshare(guild);
   // Staff-kategori med liste over aktive tickets
@@ -1139,7 +1145,8 @@ const LAYOUT = [
   { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
   { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus', 'leaderboards', 'giveaways', 'boosts'] },
   { navn: '[ 💬 ] TEKST KANALER', gamle: ['💬 COMMUNITY'], kanaler: ['chat', 'medier', 'forslag', 'botcmd'] },
-  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '🎪 Event'] },
+  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '🎪 Event', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
+  { navn: PRIVAT_KAT, gamle: [], noegle: 'privatkat', kanaler: ['privatkanal'] },
   { navn: '[ 🎫 ] TICKETS & SUPPORT', gamle: ['🎫 SUPPORT'], noegle: 'support', kanaler: ['ticket', 'fejl', 'ansog', 'tilkald', VENTE_RUM, ...SUPPORT_RUM] },
 ];
 async function layoutAnvend(guild) {
@@ -1171,6 +1178,7 @@ async function layoutAnvend(guild) {
     for (const navn of l.kanaler) {
       const c = config.kanaler[navn] ? guild.channels.cache.get(config.kanaler[navn]) : guild.channels.cache.find(x => x.name === navn && x.type !== ChannelType.GuildCategory);
       if (!c) continue;
+      if (GAMLE_NAVNE[c.name]) await c.setName(GAMLE_NAVNE[c.name]).catch(() => {}); // engelsk -> dansk
       poster.push({ channel: c.id, parent: k.id, position: n++, lockPermissions: false });
       flyttet++;
     }
@@ -1182,7 +1190,7 @@ async function layoutFortryd(guild) {
   if (!fs.existsSync(LAYOUT_BACKUP)) return null;
   const b = JSON.parse(fs.readFileSync(LAYOUT_BACKUP, 'utf8'));
   await guild.channels.fetch();
-  for (const c of b.kanaler.filter(x => x.kat)) { const k = guild.channels.cache.get(c.id); if (k && k.name !== c.navn) await k.setName(c.navn).catch(() => {}); }
+  for (const c of b.kanaler) { const k = guild.channels.cache.get(c.id); if (k && k.name !== c.navn) await k.setName(c.navn).catch(() => {}); }
   const poster = b.kanaler.filter(c => guild.channels.cache.has(c.id)).map(c => ({ channel: c.id, position: c.pos, parent: c.kat ? undefined : c.parent, lockPermissions: false }));
   await guild.channels.setPositions(poster).catch(e => console.error('Layout fortryd:', e.message));
   for (const id of b.oprettet) { const k = guild.channels.cache.get(id); if (k && !guild.channels.cache.some(c => c.parentId === id)) await k.delete().catch(() => {}); }
@@ -1252,6 +1260,184 @@ async function opsaetAdmin(guild) {
     const c = config.kanaler[noegle] && guild.channels.cache.get(config.kanaler[noegle]);
     if (c && c.parentId !== kat.id) await c.setParent(kat.id, { lockPermissions: false }).catch(e => console.error(`Flyt ${noegle}:`, e.message));
   }
+}
+// ================= STAFF-TALEKANALER =================
+const STAFF_TALE = [
+  { noegle: 'staffvoice', navn: '🔒┃Staff-tale 1', gamle: ['🔒 Staff voice'], roller: ['Ejer', 'Admin', 'Mod', 'Hjælper'] },
+  { noegle: 'stafftale2', navn: '🔒┃Staff-tale 2', gamle: [], roller: ['Ejer', 'Admin', 'Mod', 'Hjælper'] },
+  { noegle: 'admintale', navn: '🛡️┃Admin-tale', gamle: [], roller: ['Ejer', 'Admin'] },
+];
+const STAFF_TALE_KAT = '[ 🔒 ] STAFF TALE';
+async function opsaetStaffTale(guild) {
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const rolle = n => guild.roles.cache.find(r => r.name === n);
+  const alle = ['Ejer', 'Admin', 'Mod', 'Hjælper'].map(rolle).filter(Boolean);
+  let kat = config.kanaler.stafftalekat && guild.channels.cache.get(config.kanaler.stafftalekat)
+    || guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === STAFF_TALE_KAT);
+  if (!kat) kat = await guild.channels.create({ name: STAFF_TALE_KAT, type: ChannelType.GuildCategory, permissionOverwrites: [
+    { id: guild.roles.everyone.id, deny: [P.ViewChannel] }, ...alle.map(r => ({ id: r.id, allow: [P.ViewChannel, P.Connect, P.Speak] }))] }).catch(e => { console.error('Staff-tale:', e.message); return null; });
+  if (!kat) return;
+  config.kanaler.stafftalekat = kat.id;
+  for (const st of STAFF_TALE) {
+    const roller = st.roller.map(rolle).filter(Boolean);
+    const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel, P.Connect] }, ...roller.map(r => ({ id: r.id, allow: [P.ViewChannel, P.Connect, P.Speak, P.UseVAD, P.MoveMembers, P.Stream] }))];
+    let k = config.kanaler[st.noegle] && guild.channels.cache.get(config.kanaler[st.noegle])
+      || guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && [st.navn, ...st.gamle].includes(c.name));
+    if (!k) k = await guild.channels.create({ name: st.navn, type: ChannelType.GuildVoice, parent: kat.id, permissionOverwrites: ow }).catch(e => { console.error(st.navn, e.message); return null; });
+    if (!k) continue;
+    config.kanaler[st.noegle] = k.id;
+    if (k.name !== st.navn) await k.setName(st.navn).catch(() => {});
+    await k.permissionOverwrites.set(ow).catch(() => {});
+    if (k.parentId !== kat.id) await k.setParent(kat.id, { lockPermissions: false }).catch(() => {});
+  }
+  fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+}
+
+// ================= PRIVATE RUM (spillere laver egne talekanaler med adgangs-system) =================
+const PRIVAT_FIL = 'privat.json';
+let privat = (() => { try { return JSON.parse(fs.readFileSync(PRIVAT_FIL, 'utf8')); } catch { return {}; } })(); // voiceId -> { ejer, panel, navn }
+const gemPrivat = () => fs.writeFileSync(PRIVAT_FIL, JSON.stringify(privat));
+const privatTomTimer = new Map();
+const privatAnmod = new Map(); // "rum:bruger" -> tid
+async function opsaetPrivat(guild) {
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const spiller = guild.roles.cache.get(config.roller['Spiller']);
+  let kat = config.kanaler.privatkat && guild.channels.cache.get(config.kanaler.privatkat)
+    || guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === PRIVAT_KAT);
+  if (!kat) kat = await guild.channels.create({ name: PRIVAT_KAT, type: ChannelType.GuildCategory, permissionOverwrites: [
+    { id: guild.roles.everyone.id, deny: [P.ViewChannel] }, ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel] }] : [])] }).catch(e => { console.error('Private rum:', e.message); return null; });
+  if (!kat) return;
+  config.kanaler.privatkat = kat.id;
+  let k = config.kanaler.privatkanal && guild.channels.cache.get(config.kanaler.privatkanal);
+  const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory, P.ManageMessages] },
+    ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions, P.CreatePublicThreads, P.CreatePrivateThreads] }] : []),
+    ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] }))];
+  if (!k) k = await guild.channels.create({ name: PRIVAT_KANAL, type: ChannelType.GuildText, parent: kat.id, topic: 'Lav dit eget private talerum. Andre skal bede om adgang.', permissionOverwrites: ow }).catch(e => { console.error('Private rum:', e.message); return null; });
+  else await k.permissionOverwrites.set(ow).catch(() => {});
+  if (!k) return;
+  config.kanaler.privatkanal = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  const opret = await opdaterPanel(k, '🔐 Private rum', {
+    embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🔐 Private rum')
+      .setDescription('Lav dit eget talerum, hvor kun dem du giver adgang kan joine.\n\n**1.** Tryk på **Opret privat rum**, og vælg et navn og hvor mange pladser (2-25).\n**2.** Andre kan se rummet, men skal trykke **Bed om adgang** på dit rum herunder.\n**3.** Du får en besked, hvor du kan sige ja eller nej.\n\nRummet bliver fuldt, når pladserne er brugt, og det slettes af sig selv, når det har stået tomt i et par minutter.')],
+    components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('privat_opret').setLabel('Opret privat rum').setEmoji('➕').setStyle(ButtonStyle.Success))],
+  });
+  if (opret?.pin && !opret.pinned) opret.pin().catch(() => {});
+  // Ryd op i rum, der ikke findes mere, og planlæg sletning af tomme
+  for (const id of Object.keys(privat)) {
+    const v = guild.channels.cache.get(id);
+    if (!v) { delete privat[id]; continue; }
+    planlaegTomtRum(guild, id, 5 * 60000);
+  }
+  gemPrivat();
+}
+function privatEmbed(v, navn, ejer) {
+  const nu = v.members?.size || 0;
+  return new EmbedBuilder().setColor(nu >= v.userLimit && v.userLimit ? 0xef4444 : 0x57f287).setTitle(`🔐 ${navn}`)
+    .setDescription(`Ejer: <@${ejer}>\nRum: ${v}\nPladser: **${nu}/${v.userLimit || '∞'}**${v.userLimit && nu >= v.userLimit ? ' · 🔴 fuldt' : ''}`);
+}
+const privatKnapper = id => [new ActionRowBuilder().addComponents(
+  new ButtonBuilder().setCustomId(`privat_bed:${id}`).setLabel('Bed om adgang').setEmoji('🙋').setStyle(ButtonStyle.Primary),
+  new ButtonBuilder().setCustomId(`privat_antal:${id}`).setLabel('Skift antal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
+  new ButtonBuilder().setCustomId(`privat_luk:${id}`).setLabel('Slet rum').setEmoji('🗑️').setStyle(ButtonStyle.Danger))];
+async function opdaterPrivatPanel(guild, id) {
+  const d = privat[id]; if (!d) return;
+  const v = guild.channels.cache.get(id); const k = guild.channels.cache.get(config.kanaler.privatkanal);
+  if (!v || !k) return;
+  const m = await k.messages.fetch(d.panel).catch(() => null);
+  if (m) m.edit({ embeds: [privatEmbed(v, d.navn, d.ejer)], components: privatKnapper(id) }).catch(() => {});
+}
+async function sletPrivat(guild, id) {
+  const d = privat[id]; clearTimeout(privatTomTimer.get(id)); privatTomTimer.delete(id);
+  const v = guild.channels.cache.get(id); if (v) await v.delete().catch(() => {});
+  const k = guild.channels.cache.get(config.kanaler.privatkanal);
+  if (d && k) { const m = await k.messages.fetch(d.panel).catch(() => null); if (m) m.delete().catch(() => {}); }
+  delete privat[id]; gemPrivat();
+}
+function planlaegTomtRum(guild, id, ms) {
+  clearTimeout(privatTomTimer.get(id));
+  privatTomTimer.set(id, setTimeout(async () => {
+    const v = await guild.channels.fetch(id).catch(() => null);
+    if (!privat[id]) return;
+    if (!v) { delete privat[id]; gemPrivat(); return; }
+    if (v.members.size === 0) sletPrivat(guild, id); else opdaterPrivatPanel(guild, id);
+  }, ms));
+}
+client.on('voiceStateUpdate', (gl, ny) => {
+  for (const id of new Set([gl.channelId, ny.channelId].filter(x => x && privat[x]))) {
+    opdaterPrivatPanel(ny.guild, id);
+    const v = ny.guild.channels.cache.get(id);
+    if (v && v.members.size === 0) planlaegTomtRum(ny.guild, id, 3 * 60000); else clearTimeout(privatTomTimer.get(id));
+  }
+});
+async function privatKnap(i) {
+  const [handling, id, bruger] = i.customId.split(':');
+  const d = privat[id];
+  if (handling !== 'privat_opret' && !d) return i.reply({ content: 'Det rum findes ikke mere.', flags: MessageFlags.Ephemeral });
+  const maaStyre = d && (i.user.id === d.ejer || erStaff(i.member));
+  if (handling === 'privat_opret') {
+    const har = Object.entries(privat).find(([, x]) => x.ejer === i.user.id);
+    if (har) return i.reply({ content: `Du har allerede et privat rum: <#${har[0]}>. Slet det først.`, flags: MessageFlags.Ephemeral });
+    return i.showModal(new ModalBuilder().setCustomId('privat_modal').setTitle('Opret privat rum').addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('navn').setLabel('Navn på rummet (valgfrit)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(25)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('antal').setLabel('Hvor mange pladser? (2-25)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2).setValue('4'))));
+  }
+  if (handling === 'privat_bed') {
+    if (i.user.id === d.ejer) return i.reply({ content: 'Det er dit eget rum 🙂', flags: MessageFlags.Ephemeral });
+    const v = i.guild.channels.cache.get(id);
+    if (v?.permissionOverwrites.cache.get(i.user.id)?.allow.has(P.Connect)) return i.reply({ content: `Du har allerede adgang: ${v}`, flags: MessageFlags.Ephemeral });
+    const sidst = privatAnmod.get(`${id}:${i.user.id}`) || 0;
+    if (Date.now() - sidst < 60000) return i.reply({ content: '⏳ Du har lige bedt om adgang. Vent lidt.', flags: MessageFlags.Ephemeral });
+    privatAnmod.set(`${id}:${i.user.id}`, Date.now());
+    await i.channel.send({ content: `<@${d.ejer}>`, allowedMentions: { users: [d.ejer] },
+      embeds: [new EmbedBuilder().setColor(0xf59e0b).setTitle('🙋 Anmodning om adgang').setDescription(`${i.user} vil gerne ind i ${v || d.navn}.\nKun ejeren (<@${d.ejer}>) kan svare.`)],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`privat_ok:${id}:${i.user.id}`).setLabel('Giv adgang').setEmoji('✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`privat_nej:${id}:${i.user.id}`).setLabel('Afvis').setEmoji('❌').setStyle(ButtonStyle.Danger))] });
+    return i.reply({ content: '✅ Anmodningen er sendt til ejeren. Du kan joine, når du får adgang.', flags: MessageFlags.Ephemeral });
+  }
+  if (!maaStyre) return i.reply({ content: 'Kun ejeren af rummet kan gøre det.', flags: MessageFlags.Ephemeral });
+  if (handling === 'privat_ok' || handling === 'privat_nej') {
+    const v = i.guild.channels.cache.get(id);
+    if (handling === 'privat_ok' && v) await v.permissionOverwrites.edit(bruger, { ViewChannel: true, Connect: true, Speak: true }).catch(() => {});
+    return i.update({ content: '', components: [], embeds: [new EmbedBuilder().setColor(handling === 'privat_ok' ? 0x57f287 : 0xef4444)
+      .setDescription(handling === 'privat_ok' ? `✅ <@${bruger}> har fået adgang til ${v || d.navn}.` : `❌ <@${bruger}> blev afvist.`)] });
+  }
+  if (handling === 'privat_antal') {
+    const v = i.guild.channels.cache.get(id);
+    return i.showModal(new ModalBuilder().setCustomId(`privat_antal_modal:${id}`).setTitle('Skift antal pladser').addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('antal').setLabel('Hvor mange pladser? (2-25)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2).setValue(String(v?.userLimit || 4)))));
+  }
+  if (handling === 'privat_luk') {
+    await i.reply({ content: '🗑️ Rummet er slettet.', flags: MessageFlags.Ephemeral });
+    return sletPrivat(i.guild, id);
+  }
+}
+async function privatModal(i) {
+  const antal = Math.min(25, Math.max(2, parseInt(i.fields.getTextInputValue('antal'), 10) || 4));
+  if (i.customId.startsWith('privat_antal_modal')) {
+    const id = i.customId.split(':')[1]; const d = privat[id];
+    if (!d || (i.user.id !== d.ejer && !erStaff(i.member))) return i.reply({ content: 'Kun ejeren kan ændre antal.', flags: MessageFlags.Ephemeral });
+    await i.guild.channels.cache.get(id)?.setUserLimit(antal).catch(() => {});
+    await i.reply({ content: `👥 Rummet har nu **${antal}** pladser.`, flags: MessageFlags.Ephemeral });
+    return opdaterPrivatPanel(i.guild, id);
+  }
+  if (Object.values(privat).some(x => x.ejer === i.user.id)) return i.reply({ content: 'Du har allerede et privat rum.', flags: MessageFlags.Ephemeral });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  const navn = (i.fields.getTextInputValue('navn') || '').trim().replace(/[^\p{L}\p{N} _-]/gu, '') || `${i.member.displayName}s rum`.slice(0, 25);
+  const spiller = i.guild.roles.cache.get(config.roller['Spiller']);
+  const v = await i.guild.channels.create({ name: `🔒┃${navn}`.slice(0, 90), type: ChannelType.GuildVoice, parent: config.kanaler.privatkat, userLimit: antal, permissionOverwrites: [
+    { id: i.guild.roles.everyone.id, deny: [P.ViewChannel, P.Connect] },
+    ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel], deny: [P.Connect] }] : []),
+    { id: i.user.id, allow: [P.ViewChannel, P.Connect, P.Speak, P.UseVAD] },
+    ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.Connect, P.Speak, P.MoveMembers] })),
+    { id: client.user.id, allow: [P.ViewChannel, P.Connect, P.ManageChannels] }] }).catch(e => { console.error('Privat rum:', e.message); return null; });
+  if (!v) return i.editReply('❌ Kunne ikke oprette rummet.');
+  const k = i.guild.channels.cache.get(config.kanaler.privatkanal);
+  const m = await k.send({ embeds: [privatEmbed(v, navn, i.user.id)], components: privatKnapper(v.id) });
+  privat[v.id] = { ejer: i.user.id, panel: m.id, navn }; gemPrivat();
+  planlaegTomtRum(i.guild, v.id, 10 * 60000);
+  if (i.member.voice?.channel) await i.member.voice.setChannel(v).catch(() => {});
+  return i.editReply(`✅ Dit rum er klar: ${v} (${antal} pladser). Join det, og giv andre adgang, når de beder om det i <#${config.kanaler.privatkanal}>.`);
 }
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
 // Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
@@ -1547,6 +1733,7 @@ async function opdaterGuide(guild) {
       ].join('\n') },
       { name: '💡 Forslag', value: '`/forslag` · send en idé til serveren. Staff svarer, og du får en DM.' },
       { name: '🎫 Hjælp', value: `<#${config.kanaler.ticket}> · opret en ticket (support, køb, ansøgning eller anmeld en spiller)` },
+      { name: '🔐 Private rum', value: `<#${config.kanaler.privatkanal}> · lav dit eget talerum med et valgfrit antal pladser. Andre skal bede dig om adgang.` },
       { name: '🎁 Events', value: [
         `Giveaways · tryk **Deltag** i <#${config.kanaler.giveaways}>`,
         `Ugens top 3 · hver søndag kl. 20 i <#${config.kanaler.events}>`,
@@ -1737,6 +1924,7 @@ client.on('interactionCreate', async i => {
     }
 
     // ---------- DEVLOG: MODAL ----------
+    if (i.isModalSubmit() && i.customId.startsWith('privat_')) return privatModal(i);
     if (i.isModalSubmit() && i.customId === 'tilkald_modal') {
       const sidst = tilkaldCooldown.get(i.user.id) || 0;
       if (Date.now() - sidst < TILKALD_VENT) return i.reply({ content: `⏳ Du kan tilkalde staff igen om ${Math.ceil((TILKALD_VENT - (Date.now() - sidst)) / 60000)} min.`, flags: MessageFlags.Ephemeral });
@@ -1937,6 +2125,7 @@ client.on('interactionCreate', async i => {
     }
 
     if (!i.isButton()) return;
+    if (i.customId.startsWith('privat_')) return privatKnap(i);
     if (i.customId === 'tilkald') {
       const sidst = tilkaldCooldown.get(i.user.id) || 0;
       if (Date.now() - sidst < TILKALD_VENT) return i.reply({ content: `⏳ Du kan tilkalde staff igen om ${Math.ceil((TILKALD_VENT - (Date.now() - sidst)) / 60000)} min.`, flags: MessageFlags.Ephemeral });
