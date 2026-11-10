@@ -972,7 +972,7 @@ async function sendPing(kanal, navn, payload) {
 const ping = (guild, navn) => { const r = guild?.roles.cache.find(x => x.name === navn); return r ? `<@&${r.id}>` : ''; };
 
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
-async function lavUdskrift(kanal) {
+async function lavUdskrift(kanal, lukketAf) {
   let alle = [], foer;
   for (let n = 0; n < 20; n++) { // op til 2000 beskeder
     const bunke = await kanal.messages.fetch({ limit: 100, before: foer });
@@ -981,16 +981,19 @@ async function lavUdskrift(kanal) {
     if (bunke.size < 100) break;
   }
   alle = alle.reverse();
-  const tid = d => d.toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const linjer = [`Ticket: ${kanal.name}`, `Lukket: ${tid(new Date())}`, `Beskeder: ${alle.length}`, ''.padEnd(50, '-')];
-  for (const m of alle) {
-    let tekst = m.content || '';
-    for (const e of m.embeds) tekst += `${tekst ? ' ' : ''}[Embed: ${[e.title, e.description].filter(Boolean).join(' - ')}]`;
-    for (const a of m.attachments.values()) tekst += ` [Fil: ${a.url}]`;
-    linjer.push(`[${tid(m.createdAt)}] ${m.author.username}${m.author.bot ? ' (bot)' : ''}: ${tekst.trim() || '(tom)'}`);
-  }
-  const navn = kanal.name.replace(/[^a-zA-Z0-9æøåÆØÅ_-]/g, '') || 'ticket';
-  return { antal: alle.length, fil: new AttachmentBuilder(Buffer.from(linjer.join('\n'), 'utf8'), { name: `ticket-${navn}.txt` }) };
+  const ejerId = (kanal.topic || '').replace('ticket:', '');
+  const ejer = await client.users.fetch(ejerId).catch(() => null);
+  const typeNavn = Object.values(TYPER).find(([, e]) => kanal.name.startsWith(e))?.[0] || 'Ticket';
+  const beskeder = alle.map(m => ({
+    f: m.author.displayAvatarURL({ size: 64, extension: 'png' }), a: m.member?.displayName || m.author.username, bot: m.author.bot, t: m.createdTimestamp,
+    x: m.cleanContent || '',
+    e: m.embeds.map(e => ({ t: e.title || '', x: e.description || '' })),
+    v: [...m.attachments.values()].map(x => ({ n: x.name, u: x.url })),
+  }));
+  const nr = String(Math.floor(Date.now() / 1000) % 100000000).padStart(8, '0');
+  const udskrift = { ticket: nr, type: typeNavn, aabnetAf: ejer?.username || 'ukendt', lukketAf: lukketAf?.username || 'ukendt', aabnet: kanal.createdTimestamp, lukket: Date.now(), beskeder };
+  const { id } = await postPrivat('samtale', udskrift);
+  return { antal: alle.length, link: `${WEB}/samtale.html?id=${id}`, nr };
 }
 
 // ---------- /top: leaderboards som på hjemmesiden ----------
@@ -1551,10 +1554,10 @@ client.on('interactionCreate', async i => {
       if (!erStaff(i.member) && i.user.id !== ejerId) return i.reply({ content: 'Kun staff eller ticket-ejeren kan lukke.', flags: MessageFlags.Ephemeral });
       await i.reply('🔒 Ticketten lukkes om 5 sekunder...');
       const log = i.guild.channels.cache.get(config.kanaler.ticketlog);
-      const udskrift = await lavUdskrift(i.channel).catch(e => { console.error('Udskrift fejlede:', e.message); return null; });
-      if (log) log.send({ embeds: [new EmbedBuilder().setColor(0x64748b).setTitle('📁 Ticket lukket')
-        .setDescription(`Kanal: **${i.channel.name}**\nEjer: <@${ejerId}>\nLukket af: ${i.user}${udskrift ? `\nBeskeder: **${udskrift.antal}**\n\nHele samtalen ligger i filen nedenfor.` : ''}`)],
-        files: udskrift ? [udskrift.fil] : [] }).catch(() => {});
+      const udskrift = await lavUdskrift(i.channel, i.user).catch(e => { console.error('Udskrift fejlede:', e.message); return null; });
+      if (log) log.send({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('📁 Ticket lukket')
+        .setDescription(`Kanal: **${i.channel.name}**\nEjer: <@${ejerId}>\nLukket af: ${i.user}${udskrift ? `\nBeskeder: **${udskrift.antal}**` : '\n⚠️ Udskriften kunne ikke gemmes.'}`)],
+        components: udskrift ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Se samtalen').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(udskrift.link))] : [] }).catch(() => {});
       setTimeout(() => i.channel.delete().catch(() => {}), 5000);
     }
   } catch (e) {
