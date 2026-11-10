@@ -1298,6 +1298,75 @@ async function opsaetOnboarding(guild) {
     .then(() => { config.community.onboarding = 7; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log(`Onboarding: ${prompts.length} spørgsmål er sat.`); })
     .catch(e => console.log('Onboarding kunne ikke sættes automatisk – slå den til under Server Settings → Onboarding:', e.message, JSON.stringify(e.rawError?.errors || '').slice(0, 300)));
 }
+// ================= REGELSÆT I #regler =================
+const REGLER_VERSION = 1; // hæv tallet, når reglerne er ændret, så botten sætter dem op igen
+const REGEL_KAPITLER = [
+  { titel: '📜 Generelle regler', farve: 0xff6b5e, start: 1, regler: [
+    ['Hacks', 'Det er ikke tilladt at bruge nogen form for hacks eller cheats, fx killaura, fly, xray, reach, velocity og makroer eller autoclickers, der giver fordel i PvP.'],
+    ['Bugs', 'Det er ikke tilladt at udnytte fejl eller bugs. Meld dem til staff. Store fund bliver belønnet, og staff afgør, hvad der belønnes med.'],
+    ['Duplikering', 'Det er ikke tilladt at duplikere items, penge eller andet, heller ikke at hjælpe andre med det.'],
+    ['Multi-logge', 'Du må ikke have flere konti åbne på serveren på samme tid, og du må ikke bruge en ny konto til at omgå en straf.'],
+    ['Links', 'Du må ikke sende links, medmindre en staff har sagt ja til det.'],
+    ['Reklame', 'Du må ikke reklamere for andre servere i chatten, i voicechat, i private beskeder eller på serverens Discord.'],
+    ['Svindel', 'Du må ikke snyde andre spillere, fx med falske handler, falske belønninger eller bytte, der aldrig bliver leveret.'],
+    ['Personlige oplysninger', 'Du må ikke dele andres personlige oplysninger, fx adresse, telefonnummer, IP-adresse eller billeder.'],
+    ['Trusler', 'Trusler, DDoS og trusler om DDoS er forbudt og kan straffes med permanent ban.'],
+    ['Hadeforbrydelser', 'Racisme, hadefulde ytringer og diskrimination accepteres ikke.'],
+    ['Kopiering', 'Der er ingen tolerance for kopiering af serverens map, builds, opsætning eller plugins. Sker det, bliver det straks anmeldt.'],
+    ['Sund fornuft', 'Reglerne dækker ikke alt, og staff afgør, hvad der er rimeligt.'] ] },
+  { titel: '💬 Chat og voicechat', farve: 0x6ef08f, start: 13, regler: [
+    ['Misbrug af chat', 'Du må ikke skrive grimt, nedladende eller provokerende i chatten. Mobning og chikane er forbudt.'],
+    ['Spam', 'Du må ikke spamme, misbruge caps eller opfordre andre til at spamme.'],
+    ['Sprog', 'Chatten er på dansk. Korte ord som "gg" og "lets go" er fine.'],
+    ['Respekt for staff', 'Du skal følge staffs anvisninger. Er du uenig, kan du tage det i en ticket og ikke i chatten.'],
+    ['Voicechat', 'Du må hverken råbe, sige nedladende ting eller bruge soundboard og støjmaskiner. Du må ikke optage andre uden at have spurgt.'],
+    ['Navne og skins', 'Brugernavne, skins og kaldenavne må ikke være stødende, hadefulde eller efterligne staff.'] ] },
+  { titel: '⚔️ HCF og PvP', farve: 0x7dd3fc, start: 19, regler: [
+    ['Teams og alliancer', 'Du må ikke samarbejde med andre teams ud over det, serveren tillader. Ulovlige alliancer straffes for alle involverede.'],
+    ['Claims', 'Du må ikke misbruge claims, fx ved at bygge for at fange eller blokere spillere, bygge i vejen for spawn og KOTH eller bruge glitches til at komme ind i andres claims.'],
+    ['Combat-log', 'Du må ikke logge af for at undgå en kamp eller for at beholde dine ting.'],
+    ['Glitches', 'Pearl-glitches, clip og andre måder at komme uden om reglerne er forbudt. Enderpearl-cooldownen må ikke omgås.'],
+    ['Kits', 'Diamond, Rogue, Archer og Bard må ikke misbruges med fejl eller bugs, og må ikke sælges eller byttes uden for serveren.'],
+    ['Kill-farming', 'Du må ikke aftale kills med venner eller alt-konti for at klatre på leaderboards.'],
+    ['KOTH og events', 'Du må ikke udnytte bugs eller blokere KOTH og events på en måde, spillet ikke er lavet til.'] ] },
+  { titel: '🧩 Mods', farve: 0xf5c542, regler: [
+    ['Tilladt', 'Autosprint, autosneak og fullbright. Labymod, Lunar Client, BadLion Client og andre tilladte clients på Superawesome.dk. Auto-chat, hvis det ikke giver fordel i PvP.'],
+    ['Forbudt', 'Killaura, reach, velocity, fly, speed, xray og ESP. Autoclicker og makroer med fordel i PvP. Resource packs, der giver fordel.'],
+    ['Tvivl?', 'Spørg staff, før du bruger det.'] ] },
+  { titel: '🎮 Discord og giveaways', farve: 0xc084fc, start: 26, regler: [
+    ['Discord-regler', 'Alle regler fra Chat og voicechat gælder også her. Du skal også følge Discords egne vilkår.'],
+    ['Spam og pings', 'Du må ikke spamme eller mention-spamme, og du må ikke pinge staff eller @everyone uden grund.'],
+    ['Rigtig kanal', 'Memes og medier hører til i de rigtige kanaler. Lange samtaler mellem to personer hører til i #chat.'],
+    ['Tickets', 'Du må ikke misbruge tickets.'],
+    ['Giveaways', 'Er du på serverens blacklist, kan du ikke vinde giveaways. Alt-konti må ikke bruges til at deltage flere gange.'] ] },
+];
+async function opsaetRegler(guild) {
+  config.community = config.community || {};
+  if (config.community.regler === REGLER_VERSION) return;
+  const kanal = config.kanaler.regler && await guild.channels.fetch(config.kanaler.regler).catch(() => null);
+  if (!kanal) return;
+  // Fjern botten's gamle regelbeskeder
+  const gamle = await kanal.messages.fetch({ limit: 50 }).catch(() => null);
+  for (const m of gamle?.values() || []) if (m.author.id === client.user.id && m.embeds.some(e => e.footer?.text === 'HOPDOP regelsæt')) await m.delete().catch(() => {});
+  const embeds = [new EmbedBuilder().setColor(0x4ade80).setTitle('⚔️ HOPDOP REGELSÆT').setDescription('Ved at spille på HopDop (**hopdop.superawesome.dk**) eller være med i Discorden accepterer du reglerne herunder. Staff afgør selv hver sag, og står en handling ikke nævnt, kan den stadig straffes, hvis den ødelægger oplevelsen for andre.\n\n*Opdateret d. 10/11/2026*')];
+  for (const k of REGEL_KAPITLER) {
+    const tekst = k.regler.map(([navn, t], i) => `**${k.start ? `§${k.start + i} |` : '▫️'}** **${navn}.** ${t}`).join('\n\n');
+    embeds.push(new EmbedBuilder().setColor(k.farve).setTitle(k.titel).setDescription(tekst.slice(0, 4000)));
+  }
+  embeds.push(new EmbedBuilder().setColor(0xef4444).setTitle('⚖️ Straffe').setDescription('Straffene er vejledende. Staff afgør selv ud fra, hvor alvorlig sagen er, og om du har fået straffe før.\n\n**Permanent ban:** hacks, duplikering, omgåelse af straf, trusler og DDoS\n**Ban:** svindel, deling af personlige oplysninger, ulovlig alliance og claim-misbrug\n**Kick, derefter ban:** combat-log og glitches\n**Mute:** misbrug af chat, mobning og respektløshed mod staff\n**Advarsel, derefter mute:** spam, caps og sprog\n\nRapportér regelbrud i en ticket. Mener du, din straf er forkert, kan du ansøge om unban.').setFooter({ text: 'HOPDOP regelsæt' }));
+  // Discord tillader højst 10 embeds og 6000 tegn pr. besked
+  const grupper = []; let gruppe = [], laengde = 0;
+  for (const e of embeds) { const l = (e.data.description || '').length + (e.data.title || '').length; if (gruppe.length && (laengde + l > 5500 || gruppe.length >= 9)) { grupper.push(gruppe); gruppe = []; laengde = 0; } gruppe.push(e); laengde += l; }
+  if (gruppe.length) grupper.push(gruppe);
+  const knapper = new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Læs på hjemmesiden').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(`${WEB}/regler`),
+    new ButtonBuilder().setLabel('Ansøg om unban').setEmoji('🔓').setStyle(ButtonStyle.Link).setURL(`${WEB}/ansog.html?type=unban`));
+  for (const [i, g] of grupper.entries()) {
+    g[g.length - 1].setFooter({ text: 'HOPDOP regelsæt' });
+    await kanal.send({ embeds: g, components: i === grupper.length - 1 ? [knapper] : [] }).catch(e => console.error('Regler:', e.message));
+  }
+  config.community.regler = REGLER_VERSION; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  console.log('Regelsæt er sat op i #regler.');
+}
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
 async function opsaetPynt(guild, tving = false) {
   config.pynt = config.pynt || {};
@@ -1554,6 +1623,7 @@ async function opsaetSupport(guild) {
   await opsaetCommunity(guild).catch(e => console.error('opsaetCommunity:', e.message));
   await opsaetForummer(guild).catch(e => console.error('opsaetForummer:', e.message));
   await opsaetOnboarding(guild).catch(e => console.error('opsaetOnboarding:', e.message));
+  await opsaetRegler(guild).catch(e => console.error('opsaetRegler:', e.message));
   await skjulAabenForSpillere(guild).catch(e => console.error('skjulAaben:', e.message));
   await opsaetPynt(guild).catch(e => console.error('opsaetPynt:', e.message));
   await opsaetGoons(guild).catch(e => console.error('opsaetGoons:', e.message));
