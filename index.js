@@ -921,6 +921,18 @@ client.on('messageCreate', async m => {
     if (w) setTimeout(() => w.delete().catch(() => {}), 8000);
   } catch (e) { console.error('Ping-lås:', e.message); }
 });
+// Kanaler hvor spillere kun må læse (og evt. reagere): ingen skrivning, ingen tråde
+const LAESE_KANALER = { velkommen: false, regler: false, nyheder: false, events: false, devlog: false, serverip: false, giveaways: false, leaderboards: false, serverstatus: false,
+  boosts: false, botguide: false, link: false, roller: true, forslag: true, ticket: false }; // true = må reagere
+async function laasLaeseKanaler(guild) {
+  const spiller = guild.roles.cache.get(config.roller['Spiller']);
+  for (const [noegle, reager] of Object.entries(LAESE_KANALER)) {
+    const k = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+    if (!k || !k.permissionOverwrites) continue;
+    const lås = { SendMessages: false, AddReactions: reager, CreatePublicThreads: false, CreatePrivateThreads: false, SendMessagesInThreads: false };
+    for (const id of [guild.roles.everyone.id, spiller?.id].filter(Boolean)) await k.permissionOverwrites.edit(id, lås).catch(e => console.error(`Lås ${noegle}:`, e.message));
+  }
+}
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -933,6 +945,7 @@ async function opsaetRettigheder(guild) {
   const botRolle = guild.members.me.roles.botRole;
   if (botRolle) await botRolle.edit({ name: 'HOPDOP Bot', hoist: true, color: 0x4ade80 }).catch(e => console.error('Bot-rolle:', e.message));
   await laasPings(guild);
+  await laasLaeseKanaler(guild);
   // #ansøgninger: kun læsning for spillere + knapper til hjemmesiden
   const ansog = config.kanaler.ansog && await guild.channels.fetch(config.kanaler.ansog).catch(() => null);
   if (ansog) {
@@ -1936,7 +1949,7 @@ client.once('clientReady', async () => {
   await opsaetRettigheder(guild).catch(e => console.error('Rettigheder:', e.message));
   await opsaetSupport(guild).catch(e => console.error('Support:', e.message)); setInterval(() => opdaterAktive(), 60000);
   tjekScreenshare(); setInterval(tjekScreenshare, 30000);
-  setInterval(() => laasPings(guild).catch(() => {}), 5 * 60000);
+  setInterval(() => { laasPings(guild).catch(() => {}); laasLaeseKanaler(guild).catch(() => {}); }, 5 * 60000);
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
   postDevlog(); setInterval(postDevlog, 60000);
