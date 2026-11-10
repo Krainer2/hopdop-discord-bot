@@ -1112,14 +1112,15 @@ async function opsaetOnboarding(guild) {
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
 async function opsaetPynt(guild) {
   config.pynt = config.pynt || {};
-  if (!config.pynt.emojis) {
+  if (config.pynt.emojisV !== 2) {
     await guild.emojis.fetch();
+    for (const e of guild.emojis.cache.values()) if (e.name.startsWith('hopdop_')) await e.delete('Erstattes af nye emojis').catch(() => {}); // gamle, enkle emojis
     let n = 0;
     for (const [navn, b64] of Object.entries(EKSTRA_DATA.emojis)) {
       if (guild.emojis.cache.some(e => e.name === navn)) continue;
       await guild.emojis.create({ attachment: Buffer.from(b64, 'base64'), name: navn, reason: 'HOPDOP emojis' }).then(() => n++).catch(e => console.error(`Emoji ${navn}:`, e.message));
     }
-    config.pynt.emojis = true; console.log(`Pynt: ${n} server-emojis oprettet.`);
+    config.pynt.emojisV = 2; console.log(`Pynt: ${n} server-emojis oprettet.`);
   }
   if (!config.pynt.lyde) {
     for (const [navn, l] of Object.entries(EKSTRA_DATA.lyde)) {
