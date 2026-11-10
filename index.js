@@ -1146,7 +1146,7 @@ async function tilkaldStaff(i, grund) {
 }
 // ================= LAYOUT: opdel kanalerne i pæne kategorier (/layout anvend | fortryd) =================
 const LAYOUT_BACKUP = 'layout-backup.json';
-const LAYOUT_VERSION = 3;
+const LAYOUT_VERSION = 4;
 // Kategorier i rækkefølge (staff-kategorierne røres ikke). "gamle" = navne den kan have i forvejen. "kanaler" = nøgler i config.json eller navne på talekanaler.
 const LAYOUT = [
   { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
@@ -1178,27 +1178,38 @@ async function layoutAnvend(guild) {
     const m = fundet || await guild.channels.create({ name: '😂┃memes', type: ChannelType.GuildText, topic: 'Del dine bedste memes 😂', permissionOverwrites: chat ? [...chat.permissionOverwrites.cache.values()].map(o => ({ id: o.id, type: o.type, allow: o.allow, deny: o.deny })) : [] }).catch(e => { console.error('#memes:', e.message); return null; });
     if (m) { config.kanaler.memes = m.id; backup.oprettet.push(...(fundet ? [] : [m.id])); fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); }
   }
-  fs.writeFileSync(LAYOUT_BACKUP, JSON.stringify(backup, null, 2));
+  if (fs.existsSync(LAYOUT_BACKUP)) { // behold den første backup, så fortryd går tilbage til det oprindelige
+    const gl = JSON.parse(fs.readFileSync(LAYOUT_BACKUP, 'utf8')); gl.oprettet = [...new Set([...(gl.oprettet || []), ...backup.oprettet])]; fs.writeFileSync(LAYOUT_BACKUP, JSON.stringify(gl, null, 2));
+  } else fs.writeFileSync(LAYOUT_BACKUP, JSON.stringify(backup, null, 2));
   // Kategorierne: STATS (0) og LINK (1) bliver øverst, derefter vores
   const top = ['statskat', 'linkkat'].map(n => config.kanaler[n]).filter(Boolean);
   const mine = [...top, ...kat.map(x => x.k.id)];
   const resten = alle.filter(c => c.type === ChannelType.GuildCategory && !mine.includes(c.id)).sort((a, b) => a.rawPosition - b.rawPosition).map(c => c.id);
   const raekke = [...mine, ...resten];
   await guild.channels.setPositions(raekke.map((id, position) => ({ channel: id, position }))).catch(e => console.error('Layout kategorier:', e.message));
-  // Kanalerne ind i kategorierne (uden at røre deres rettigheder)
+  // Kanalerne ind i kategorierne én ad gangen (uden at røre deres rettigheder)
   let flyttet = 0;
-  const poster = [];
+  const raekkefoelge = [];
   for (const { l, k } of kat) {
     let n = 0;
     for (const navn of l.kanaler) {
       const c = config.kanaler[navn] ? guild.channels.cache.get(config.kanaler[navn]) : guild.channels.cache.find(x => x.name === navn && x.type !== ChannelType.GuildCategory);
       if (!c) continue;
       if (GAMLE_NAVNE[c.name]) await c.setName(GAMLE_NAVNE[c.name]).catch(() => {}); // engelsk -> dansk
-      poster.push({ channel: c.id, parent: k.id, position: n++, lockPermissions: false });
+      if (c.parentId !== k.id) await c.setParent(k.id, { lockPermissions: false }).catch(e => console.error(`Layout: kunne ikke flytte ${c.name}:`, e.message));
+      raekkefoelge.push({ channel: c.id, position: n++ });
       flyttet++;
     }
   }
-  await guild.channels.setPositions(poster).catch(e => console.error('Layout kanaler:', e.message));
+  await guild.channels.setPositions(raekkefoelge).catch(e => console.error('Layout rækkefølge:', e.message));
+  // Fjern løse, tomme kategorier (dem vi selv bruger og staff-kategorierne bliver)
+  await guild.channels.fetch();
+  const beskyttet = new Set([...kat.map(x => x.k.id), ...['statskat', 'linkkat', 'aktivkat', 'adminkat', 'stafftalekat', 'privatkat', 'support'].map(n => config.kanaler[n]),
+    guild.channels.cache.get(config.kanaler.staffchat)?.parentId].filter(Boolean));
+  for (const c of guild.channels.cache.values()) {
+    if (c.type !== ChannelType.GuildCategory || beskyttet.has(c.id)) continue;
+    if (!guild.channels.cache.some(x => x.parentId === c.id)) { console.log(`Layout: sletter tom kategori "${c.name}"`); await c.delete('Tom kategori efter layout').catch(() => {}); }
+  }
   return { flyttet, kategorier: kat.length, nye: backup.oprettet.length };
 }
 async function layoutFortryd(guild) {
@@ -1338,6 +1349,10 @@ async function opsaetPrivat(guild) {
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('privat_opret').setLabel('Opret privat rum').setEmoji('➕').setStyle(ButtonStyle.Success))],
   });
   if (opret?.pin && !opret.pinned) opret.pin().catch(() => {});
+  // Fjern løse beskeder (gamle anmodninger og svar) - kun panelerne bliver stående
+  const gyldige = new Set(Object.entries(privat).filter(([id]) => guild.channels.cache.has(id)).map(([, x]) => x.panel));
+  const msgs = await k.messages.fetch({ limit: 100 }).catch(() => null);
+  if (msgs) for (const m of msgs.values()) if (m.author.id === client.user.id && m.embeds[0]?.title !== '🔐 Private rum' && !gyldige.has(m.id)) await m.delete().catch(() => {});
   // Ryd op i rum, der ikke findes mere, og planlæg sletning af tomme
   for (const id of Object.keys(privat)) {
     const v = guild.channels.cache.get(id);
@@ -1410,7 +1425,8 @@ async function privatKnap(i) {
       embeds: [new EmbedBuilder().setColor(0xf59e0b).setTitle('🙋 Anmodning om adgang').setDescription(`${i.user} vil gerne ind i ${v || d.navn}.\nKun ejeren (<@${d.ejer}>) kan svare.`)],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`privat_ok:${id}:${i.user.id}`).setLabel('Giv adgang').setEmoji('✅').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`privat_nej:${id}:${i.user.id}`).setLabel('Afvis').setEmoji('❌').setStyle(ButtonStyle.Danger))] });
+        new ButtonBuilder().setCustomId(`privat_nej:${id}:${i.user.id}`).setLabel('Afvis').setEmoji('❌').setStyle(ButtonStyle.Danger))] })
+      .then(m => setTimeout(() => m.delete().catch(() => {}), 15 * 60000)); // ubesvarede anmodninger fjernes efter 15 min
     return i.reply({ content: '✅ Anmodningen er sendt til ejeren. Du kan joine, når du får adgang.', flags: MessageFlags.Ephemeral });
   }
   if (!maaStyre) return i.reply({ content: 'Kun ejeren af rummet kan gøre det.', flags: MessageFlags.Ephemeral });
@@ -1422,8 +1438,10 @@ async function privatKnap(i) {
   if (handling === 'privat_ok' || handling === 'privat_nej') {
     const v = i.guild.channels.cache.get(id);
     if (handling === 'privat_ok' && v) await v.permissionOverwrites.edit(bruger, { ViewChannel: true, Connect: true, Speak: true }).catch(() => {});
-    return i.update({ content: '', components: [], embeds: [new EmbedBuilder().setColor(handling === 'privat_ok' ? 0x57f287 : 0xef4444)
+    const besked = i.message;
+    await i.update({ content: '', components: [], embeds: [new EmbedBuilder().setColor(handling === 'privat_ok' ? 0x57f287 : 0xef4444)
       .setDescription(handling === 'privat_ok' ? `✅ <@${bruger}> har fået adgang til ${v || d.navn}.` : `❌ <@${bruger}> blev afvist.`)] });
+    return setTimeout(() => besked.delete().catch(() => {}), 20000); // svaret fjernes igen, så kanalen ikke bliver proppet
   }
   if (handling === 'privat_antal') {
     const v = i.guild.channels.cache.get(id);
