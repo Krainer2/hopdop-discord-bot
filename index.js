@@ -1037,7 +1037,40 @@ const VENTE_RUM = '⏳┃Afventer support';
 const PRIVAT_KAT = '[ 🔐 ] PRIVATE RUM';
 const PRIVAT_KANAL = '🔐┃opret-privat-rum';
 const TILKALD_KANAL = '🔔┃support-afventer';
-const GAMLE_NAVNE = { '🔊 Lounge': '💬┃Hyggesnak', '🎮 Duo 1': '🎮┃Makkerrum 1', '🎮 Duo 2': '🎮┃Makkerrum 2', '🎪 Event': '🎪┃Eventrum' };
+const TALE_NAVNE = { '🔊 Lounge': '🔊 Snak', '💬┃Hyggesnak': '🔊 Snak', '🎮 Duo 1': '🎮 Gaming 1', '🎮┃Makkerrum 1': '🎮 Gaming 1', '🎮 Duo 2': '🎮 Gaming 2', '🎮┃Makkerrum 2': '🎮 Gaming 2', '🎪 Event': '🎪 Event', '🎪┃Eventrum': '🎪 Event' };
+const GAMLE_NAVNE = TALE_NAVNE;
+const EVENT_RUM = '🎪 Event';
+const EVENT_PODIUM = '🎤 Event-podium';
+// Normale navne til talekanalerne + Event og Event-podium (til staff) øverst i kategorien
+async function opsaetTaleNavne(guild) {
+  await guild.channels.fetch();
+  const spiller = guild.roles.cache.get(config.roller['Spiller']);
+  const staffOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.Connect, P.Speak, P.MoveMembers, P.MuteMembers, P.RequestToSpeak] }));
+  let kat = null;
+  for (const c of guild.channels.cache.values()) {
+    if (c.type === ChannelType.GuildVoice && TALE_NAVNE[c.name]) {
+      if (c.name !== TALE_NAVNE[c.name]) await c.setName(TALE_NAVNE[c.name]).catch(() => {});
+      kat = kat || c.parentId;
+    }
+  }
+  if (!kat) { const k = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && /SNAKKE/i.test(c.name)); kat = k && k.id; }
+  if (!kat) return;
+  const aabent = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.Speak] }, ...staffOw];
+  let ev = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === EVENT_RUM);
+  if (!ev) ev = await guild.channels.create({ name: EVENT_RUM, type: ChannelType.GuildVoice, parent: kat, permissionOverwrites: aabent }).catch(e => { console.error('Event-rum:', e.message); return null; });
+  // Podium: scene hvor staff taler og alle andre lytter (kan bede om ordet)
+  const podOw = [{ id: guild.roles.everyone.id, allow: [P.ViewChannel, P.Connect, P.RequestToSpeak], deny: [P.Speak] }, ...staffOw];
+  let pod = guild.channels.cache.find(c => (c.type === ChannelType.GuildStageVoice || c.type === ChannelType.GuildVoice) && c.name === EVENT_PODIUM);
+  if (!pod) {
+    pod = await guild.channels.create({ name: EVENT_PODIUM, type: ChannelType.GuildStageVoice, parent: kat, permissionOverwrites: podOw }).catch(() => null);
+    if (!pod) pod = await guild.channels.create({ name: EVENT_PODIUM, type: ChannelType.GuildVoice, parent: kat, permissionOverwrites: podOw }).catch(e => { console.error('Event-podium:', e.message); return null; });
+  }
+  if (ev && ev.parentId !== kat) await ev.setParent(kat, { lockPermissions: false }).catch(() => {});
+  if (pod && pod.parentId !== kat) await pod.setParent(kat, { lockPermissions: false }).catch(() => {});
+  const poser = [ev, pod].filter(Boolean).map((c, i) => ({ channel: c.id, position: i }));
+  await guild.channels.setPositions(poser).catch(e => console.error('Tale-rækkefølge:', e.message));
+  console.log('Talekanaler: normale navne + Event og Event-podium øverst.');
+}
 const AKTIVE_KAT = '🎫 AKTIVE TICKETS';
 const AKTIVE_KANAL = '📋┃aktive-tickets';
 async function opsaetSupport(guild) {
@@ -1078,6 +1111,7 @@ async function opsaetSupport(guild) {
   await opsaetStaffTale(guild);
   await opsaetPrivat(guild);
   await engangsOprydning(guild);
+  await opsaetTaleNavne(guild);
   // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
   if (config.layoutVersion !== LAYOUT_VERSION) {
     const r = await layoutAnvend(guild).catch(e => { console.error('Layout:', e.message); return null; });
@@ -1210,7 +1244,7 @@ const LAYOUT = [
   { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus'] },
   { navn: '[ 🌟 ] COMMUNITY', gamle: ['💬 COMMUNITY'], kanaler: ['forslag', 'giveaways', 'leaderboards', 'boosts'] },
   { navn: '[ 💬 ] TEKST KANALER', gamle: [], kanaler: ['chat', 'medier', 'memes', 'botcmd'] },
-  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '🎪 Event', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
+  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🎪 Event', '🎤 Event-podium', '🔊 Snak', '🎮 Gaming 1', '🎮 Gaming 2', '🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
   { navn: PRIVAT_KAT, gamle: [], noegle: 'privatkat', kanaler: ['privatkanal'] },
   { navn: '[ 🎫 ] TICKETS & SUPPORT', gamle: ['🎫 SUPPORT'], noegle: 'support', kanaler: ['ticket', 'fejl', 'ansog', 'tilkald', VENTE_RUM, ...SUPPORT_RUM] },
 ];
