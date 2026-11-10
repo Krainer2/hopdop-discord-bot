@@ -817,6 +817,18 @@ async function liveChatKanal(guild) {
   }
   return k;
 }
+// #live-kommandoer: alle kommandoer spillerne skriver ingame (adskilt fra den almindelige chat)
+async function kommandoKanal(guild) {
+  let k = config.kanaler.livekom && await guild.channels.fetch(config.kanaler.livekom).catch(() => null);
+  if (!k) {
+    const lc = await liveChatKanal(guild);
+    k = await guild.channels.create({ name: '⌨️┃live-kommandoer', type: ChannelType.GuildText, parent: lc.parentId || undefined,
+      topic: 'Alle kommandoer spillere bruger ingame, i realtid. Kun staff.', permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }] });
+    config.kanaler.livekom = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#live-kommandoer er oprettet.');
+  }
+  return k;
+}
 // #join-leave: samme adgang som #live-chat, men kun joins/leaves - så de ikke fylder i den almindelige chat
 async function joinLeaveKanal(guild) {
   let k = config.kanaler.joinleave && await guild.channels.fetch(config.kanaler.joinleave).catch(() => null);
@@ -833,11 +845,13 @@ async function joinLeaveKanal(guild) {
 async function opdaterLiveChatAdgang(guild) {
   const k = await liveChatKanal(guild);
   const jl = await joinLeaveKanal(guild);
+  const kk = await kommandoKanal(guild);
   const roller = new Set(['Ejer', ...(adgang.livechat || [])]);
   const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages] }];
   for (const navn of roller) { const r = guild.roles.cache.find(x => x.name === navn); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
   await k.permissionOverwrites.set(ow).catch(e => console.error('#live-chat adgang:', e.message));
   await jl.permissionOverwrites.set(ow).catch(e => console.error('#join-leave adgang:', e.message));
+  await kk.permissionOverwrites.set(ow).catch(e => console.error('#live-kommandoer adgang:', e.message));
 }
 const klok = t => new Date(t).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit' });
 const RANK_IKON = { Ejer: '👑', Admin: '🔴', Mod: '🟣', 'Hjælper': '🟢', Builder: '🔷', Legende: '💎', Mester: '💠', Diamant: '💎', Guld: '🟡', 'Sølv': '⚪', Bronze: '🟤' };
@@ -899,8 +913,11 @@ async function tjekBro() {
         if (blok) await kanal.send({ content: blok, allowedMentions: { parse: [] } });
       };
       const jlTyper = c => ['J', 'Q'].includes(c.tekst.split('|')[0]);
-      await send(k, d.chat.filter(c => !jlTyper(c)).map(chatLinje));
+      const kom = await kommandoKanal(guild);
+      const komTyper = c => c.tekst.split('|')[0] === 'K';
+      await send(k, d.chat.filter(c => !jlTyper(c) && !komTyper(c)).map(chatLinje));
       await send(jl, d.chat.filter(jlTyper).map(chatLinje));
+      await send(kom, d.chat.filter(komTyper).map(chatLinje));
     }
   } catch (e) { if (!String(e.message).includes('fetch failed')) console.error('Bro:', e.message); }
 }
