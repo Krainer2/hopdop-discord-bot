@@ -211,6 +211,68 @@ async function tjekHjemmeside() {
   if (foerste) console.log('Hjemmeside-forbindelse klar. Nye ansøgninger og straffe postes fra nu af.');
 }
 
+// ---------- /link: Discord <-> Minecraft og rank-roller ----------
+// Spilleren skriver /link her og /discord <kode> ingame (DiscordLink.sk). Ranks kommer via hjemmesiden.
+const LINK_FIL = 'link.json';
+const linkData = (() => { try { return JSON.parse(fs.readFileSync(LINK_FIL, 'utf8')); } catch { return { ventende: {}, links: {} }; } })();
+const gemLink = () => fs.writeFileSync(LINK_FIL, JSON.stringify(linkData, null, 2));
+const KODE_TEGN = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const nyLinkKode = () => Array.from({ length: 6 }, () => KODE_TEGN[Math.floor(Math.random() * KODE_TEGN.length)]).join('');
+// Køberanks: kun den højeste gives. Ekstra-roller gives hver for sig. Staff-roller synkes ALDRIG automatisk.
+const KOEBERANKS = ['Legende', 'Mester', 'Diamant', 'Guld', 'Sølv', 'Bronze'];
+const EKSTRA = ['Streamer', 'Partner', 'Builder', 'Event'];
+const norm = t => String(t).toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa').replace('bygger', 'builder').replace(/^solv$/, 'soelv');
+const linkAf = discordId => linkData.links[discordId] || null;
+
+async function synkRoller(guild, discordId, ranks) {
+  const m = await guild.members.fetch(discordId).catch(() => null);
+  if (!m) return;
+  const har = new Set((ranks || []).map(norm));
+  const hoejeste = KOEBERANKS.find(r => har.has(norm(r)));
+  const skal = new Set([hoejeste, ...EKSTRA.filter(r => har.has(norm(r)))].filter(Boolean));
+  for (const navn of [...KOEBERANKS, ...EKSTRA]) {
+    const id = config.roller[navn];
+    if (!id) continue;
+    if (skal.has(navn) && !m.roles.cache.has(id)) await m.roles.add(id, 'Rank fra Minecraft').catch(e => console.error('Rolle:', e.message));
+    if (!skal.has(navn) && m.roles.cache.has(id)) await m.roles.remove(id, 'Rank fra Minecraft').catch(e => console.error('Rolle:', e.message));
+  }
+}
+
+async function tjekLinks() {
+  if (!botNoegle()) return;
+  try {
+    const nu = Date.now();
+    for (const [k, v] of Object.entries(linkData.ventende)) if (nu - v.t > 30 * 60000) delete linkData.ventende[k];
+    if (!Object.keys(linkData.links).length && !Object.keys(linkData.ventende).length) return;
+    const { koder = {}, ranks = {} } = await hentPrivat('link');
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    // Nye forbindelser
+    for (const [kode, v] of Object.entries(linkData.ventende)) {
+      const k = koder[kode];
+      if (!k) continue;
+      // Samme Minecraft-konto må kun være forbundet med én Discord
+      for (const [d, l] of Object.entries(linkData.links)) if (l.u === k.u && d !== v.d) delete linkData.links[d];
+      linkData.links[v.d] = { u: k.u, n: k.n, r: '' };
+      delete linkData.ventende[kode];
+      console.log(`Forbundet: ${k.n} <-> ${v.d}`);
+      client.users.fetch(v.d).then(u => u.send({ embeds: [new EmbedBuilder().setColor(0x22c55e)
+        .setTitle('✅ Din Discord er forbundet!')
+        .setDescription(`Du er nu forbundet med **${k.n}** på Hopdop.\nDin rank-rolle bliver sat automatisk, og \`/stats\` uden navn viser nu dine egne stats.`)] })).catch(() => {});
+    }
+    // Ranks -> roller (kun når noget har ændret sig)
+    for (const [d, l] of Object.entries(linkData.links)) {
+      const r = ranks[l.u];
+      if (!r) continue;
+      if (r.n) l.n = r.n;
+      const noegle = r.r.slice().sort().join(',');
+      if (noegle === l.r) continue;
+      await synkRoller(guild, d, r.r);
+      l.r = noegle;
+    }
+    gemLink();
+  } catch (e) { console.error('Link:', e.message); }
+}
+
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
 async function lavUdskrift(kanal) {
   let alle = [], foer;
@@ -372,6 +434,11 @@ async function opdaterGuide(guild) {
         '`/top <liste>` · top 10 i kills, K/D, daily, duels, KOTH m.m.',
         '`/online` · hvem der er på serveren lige nu',
       ].join('\n') },
+      { name: '🔗 Forbind Minecraft', value: [
+        '`/link` · få en kode, og skriv `/discord <kode>` ingame',
+        'Så får du automatisk din rank-rolle, og `/stats` viser dine egne stats',
+        '`/unlink` · fjern forbindelsen',
+      ].join('\n') },
       { name: '🌐 Server', value: [
         '`/ip` · serverens IP og hvordan du joiner',
         `<#${config.kanaler.serverip}> · IP og antal online, opdateres af sig selv`,
@@ -391,7 +458,7 @@ async function opdaterGuide(guild) {
 }
 
 // Kommandoer som almindelige spillere kun må bruge i #bot-kommandoer (staff må overalt)
-const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online'];
+const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online', 'link'];
 
 const erStaff = m => m.roles.cache.some(r => STAFF.includes(r.id));
 const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'] };
@@ -402,8 +469,10 @@ const kommandoer = [
     .addStringOption(o => o.setName('liste').setDescription('Hvilket leaderboard?').setRequired(true)
       .addChoices(...Object.entries(TOP).map(([value, t]) => ({ name: t.navn, value })))),
   new SlashCommandBuilder().setName('online').setDescription('Se hvem der er online på Hopdop'),
+  new SlashCommandBuilder().setName('link').setDescription('Forbind din Discord med din Minecraft-konto og få din rank-rolle'),
+  new SlashCommandBuilder().setName('unlink').setDescription('Fjern forbindelsen mellem din Discord og Minecraft'),
   new SlashCommandBuilder().setName('stats').setDescription('Se en spillers stats fra Hopdop')
-    .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setAutocomplete(true).setMaxLength(16)),
+    .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn (tom = dig selv, hvis du har brugt /link)').setRequired(false).setAutocomplete(true).setMaxLength(16)),
   new SlashCommandBuilder().setName('giveaway').setDescription('Start en giveaway')
     .addStringOption(o => o.setName('praemie').setDescription('Hvad kan man vinde?').setRequired(true))
     .addIntegerOption(o => o.setName('minutter').setDescription('Hvor mange minutter?').setRequired(true).setMinValue(1).setMaxValue(10080))
@@ -436,6 +505,7 @@ client.once('clientReady', async () => {
   if (Object.keys(gwData).length) console.log(`${Object.keys(gwData).length} giveaway(s) fortsætter.`);
   setInterval(tjekUgeTop, 60000); tjekUgeTop();
   tjekHjemmeside(); setInterval(tjekHjemmeside, 120000);
+  tjekLinks(); setInterval(tjekLinks, 30000);
   if (!botNoegle()) console.log('BOT_NOEGLE mangler i .env - ansøgninger og straffe postes, så snart den er tilføjet.');
 });
 
@@ -508,6 +578,29 @@ client.on('interactionCreate', async i => {
     if (i.isChatInputCommand()) {
       if (OFFENTLIGE.includes(i.commandName) && i.channelId !== config.kanaler.botcmd && !erStaff(i.member))
         return i.reply({ content: `Brug kommandoer i <#${config.kanaler.botcmd}> 🙂`, flags: MessageFlags.Ephemeral });
+      if (i.commandName === 'link') {
+        const l = linkAf(i.user.id);
+        if (l) return i.reply({ content: `Du er allerede forbundet med **${l.n}**. Brug \`/unlink\` for at fjerne det.`, flags: MessageFlags.Ephemeral });
+        for (const [k, v] of Object.entries(linkData.ventende)) if (v.d === i.user.id) delete linkData.ventende[k];
+        const kode = nyLinkKode();
+        linkData.ventende[kode] = { d: i.user.id, t: Date.now() }; gemLink();
+        return i.reply({ flags: MessageFlags.Ephemeral, embeds: [new EmbedBuilder().setColor(LILLA)
+          .setAuthor({ name: 'HOPDOP · Forbind din konto' })
+          .setTitle('🔗 Din kode: ' + kode)
+          .setDescription([
+            `**1.** Join serveren: \`${SERVER_IP}\``,
+            `**2.** Skriv i chatten: \`/discord ${kode}\``,
+            '**3.** Inden for et minut får du din rank-rolle her og en besked fra mig.',
+            '', '⏳ Koden virker i 30 minutter. Del den ikke med andre.',
+          ].join('\n'))] });
+      }
+      if (i.commandName === 'unlink') {
+        const l = linkAf(i.user.id);
+        if (!l) return i.reply({ content: 'Du er ikke forbundet. Brug `/link` for at forbinde.', flags: MessageFlags.Ephemeral });
+        delete linkData.links[i.user.id]; gemLink();
+        await synkRoller(i.guild, i.user.id, []);
+        return i.reply({ content: `Forbindelsen til **${l.n}** er fjernet, og dine rank-roller er taget af.`, flags: MessageFlags.Ephemeral });
+      }
       if (i.commandName === 'top' || i.commandName === 'online') {
         await i.deferReply();
         const emb = await (i.commandName === 'top' ? lavTopEmbed(i.options.getString('liste')) : lavOnlineEmbed())
@@ -542,7 +635,8 @@ client.on('interactionCreate', async i => {
       }
       if (i.commandName === 'stats') {
         await i.deferReply();
-        const navn = i.options.getString('spiller').trim();
+        const navn = (i.options.getString('spiller') || linkAf(i.user.id)?.n || '').trim();
+        if (!navn) return i.editReply('Skriv et navn, fx `/stats krainer2`. Eller brug `/link`, så viser `/stats` dine egne stats.');
         const emb = await lavStatsEmbed(navn).catch(e => { console.error('Stats-fejl:', e.message); return 'fejl'; });
         if (emb === 'fejl') return i.editReply('Kunne ikke hente stats lige nu. Prøv igen om lidt.');
         if (!emb) return i.editReply(`Fandt ingen spiller ved navn **${navn}**. Spilleren skal have været på serveren.`);
