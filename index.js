@@ -8,7 +8,8 @@ const { Client, GatewayIntentBits, ChannelType, PermissionFlagsBits: P, EmbedBui
 const FARVE = 0x3b82f6;
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const STAFF = ['Ejer', 'Admin', 'Mod', 'Hjælper'].map(n => config.roller[n]);
-const SERVER_IP = process.env.SERVER_IP || 'Kommer snart';
+const SERVER_IP = process.env.SERVER_IP || 'hopdop.superawesome.dk';
+const IP_NOTE = 'Da vi ikke har VIP, kan du ikke connecte direkte til Hopdop. Join med IP\'en ovenfor, og følg instrukserne, der kommer i chatten.';
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const giveaways = new Map(); // beskedId -> Set(brugerId)
@@ -49,7 +50,32 @@ client.once('clientReady', async () => {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   await guild.commands.set(kommandoer);
   console.log('Kommandoer registreret.');
+  await opdaterIpKanal(guild).catch(e => console.error('Kunne ikke opdatere #server-ip:', e.message));
 });
+
+// Skriver (eller retter) IP-beskeden i #server-ip, hver gang botten starter
+async function opdaterIpKanal(guild) {
+  const kanal = await guild.channels.fetch(config.kanaler.serverip).catch(() => null);
+  if (!kanal) return console.log('#server-ip findes ikke.');
+  const embed = new EmbedBuilder().setColor(FARVE).setTitle('🌐 Server-IP')
+    .setDescription([
+      `**IP:** \`${SERVER_IP}\``,
+      '**Version:** 1.8.9',
+      '',
+      '**Sådan joiner du:**',
+      '**1.** Åbn Minecraft, og gå til **Multiplayer**.',
+      '**2.** Tryk på **Tilføj server**, og skriv IP\'en ovenfor.',
+      '**3.** Join serveren, og følg instrukserne i chatten.',
+      '',
+      `⚠️ ${IP_NOTE}`,
+    ].join('\n'))
+    .setFooter({ text: 'Du kan altid skrive /ip i #bot-kommandoer' });
+  const beskeder = await kanal.messages.fetch({ limit: 20 });
+  const gammel = beskeder.find(m => m.author.id === client.user.id);
+  if (gammel) await gammel.edit({ content: '', embeds: [embed] });
+  else await kanal.send({ embeds: [embed] });
+  console.log('#server-ip er opdateret.');
+}
 
 // Velkomstbesked
 client.on('guildMemberAdd', async member => {
@@ -111,7 +137,7 @@ client.on('interactionCreate', async i => {
         return i.reply({ content: `Forslag \`${sid}\` er ${ok ? 'godkendt' : 'afvist'}.`, flags: MessageFlags.Ephemeral });
       }
       if (i.commandName === 'ip') {
-        return i.reply({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🌐 Serverens IP').setDescription(`\`${SERVER_IP}\``)] });
+        return i.reply({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🌐 Serverens IP').setDescription(`\`${SERVER_IP}\`\n\n⚠️ ${IP_NOTE}`)] });
       }
       if (i.commandName === 'say') {
         await i.channel.send({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle(i.options.getString('titel')).setDescription(i.options.getString('tekst').replace(/\\n/g, '\n'))] });
