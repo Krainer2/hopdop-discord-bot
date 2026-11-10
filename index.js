@@ -1300,14 +1300,18 @@ async function opsaetOnboarding(guild) {
 }
 // ================= REGELSÆT I #regler =================
 // Én kort besked: link til reglerne på hjemmesiden + knap til at acceptere og få adgang
-const REGLER_VERSION = 3; // hæv tallet, når teksten skal sættes op igen
+const REGLER_VERSION = 4; // hæv tallet, når teksten skal sættes op igen
 async function opsaetRegler(guild) {
   config.community = config.community || {};
   if (config.community.regler === REGLER_VERSION) return;
   const kanal = config.kanaler.regler && await guild.channels.fetch(config.kanaler.regler).catch(() => null);
   if (!kanal) return;
   const gamle = await kanal.messages.fetch({ limit: 50 }).catch(() => null);
-  for (const m of gamle?.values() || []) if (m.author.id === client.user.id && m.embeds.some(e => e.footer?.text === 'HOPDOP regelsæt')) await m.delete().catch(() => {});
+  for (const m of gamle?.values() || []) {
+    const botRegel = m.author.id === client.user.id && m.embeds.some(e => e.footer?.text === 'HOPDOP regelsæt');
+    const gammelRegel = m.author.id !== client.user.id && /SERVER REGLER/i.test(`${m.content || ''} ${m.embeds.map(e => `${e.title || ''} ${e.description || ''}`).join(' ')}`); // den gamle regelbesked, ejeren bad om at fjerne
+    if (botRegel || gammelRegel) await m.delete().catch(e => console.error('Kunne ikke slette regelbesked:', e.message));
+  }
   const emb = new EmbedBuilder().setColor(0x4ade80).setTitle('📜 Velkommen til HopDop!')
     .setDescription('Før du får adgang til resten af serveren, skal du læse vores regler. De gælder både ingame og her på Discord.\n\n**Sådan kommer du ind**\n**1.** Tryk på **Læs reglerne** og læs dem igennem.\n**2.** Tryk på **Accepter reglerne** for at få adgang.\n\nStaff afgør selv hver sag, så brug din sunde fornuft.')
     .setFooter({ text: 'HOPDOP regelsæt' });
