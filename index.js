@@ -1247,6 +1247,21 @@ async function opsaetAabenKategori(guild) {
     else if (k.name !== navn || k.topic !== emne) await k.edit({ name: navn, topic: emne }, 'Tydeligere navne').catch(e => console.error('Omdøb ' + navn + ':', e.message));
     if (k) ids.push(k.id);
   }
+  // Skrivebeskyttet guide: hvordan bliver jeg verificeret?
+  const GUIDE = '✅┃hvordan-bliver-jeg-verificeret';
+  const GUIDE_EMNE = 'Sådan får du adgang til resten af serveren.';
+  let g = guild.channels.cache.find(c => c.parentId === kat.id && c.name === GUIDE);
+  if (!g) g = await guild.channels.create({ name: GUIDE, type: ChannelType.GuildText, parent: kat.id, topic: GUIDE_EMNE, position: 0, permissionOverwrites: [{ id: alle.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions] }], reason: 'Verificeringsguide' }).catch(e => { console.error('Guide-kanal:', e.message); return null; });
+  if (g) {
+    const reglerId = config.kanaler && config.kanaler.regler;
+    const embed = new EmbedBuilder().setColor(0xff8c42).setTitle('✅ Hvordan bliver jeg verificeret?')
+      .setDescription(`Du er ikke verificeret endnu, derfor kan du kun se denne kategori. Det tager under et minut:\n\n**1.** Gå til ${reglerId ? `<#${reglerId}>` : '#regler'} og tryk på **Læs reglerne**.\n**2.** Tryk på **Accepter reglerne** under beskeden.\n**3.** Du får rollen **Spiller** med det samme og kan se resten af serveren.\n\nSer du ikke #regler? Så skriv i 👋┃sig-hej eller ❓┃spørgsmål, så hjælper en fra staff dig.`)
+      .setFooter({ text: 'HOPDOP · Verificering' });
+    const msgs = await g.messages.fetch({ limit: 20 }).catch(() => null);
+    const egen = msgs && msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.footer?.text === 'HOPDOP · Verificering');
+    if (egen) await egen.edit({ embeds: [embed] }).catch(() => {});
+    else await g.send({ embeds: [embed] }).catch(e => console.error('Guide-besked:', e.message));
+  }
   return ids;
 }
 // De åbne Velkommen-kanaler er kun til nye: skjul dem for Spiller-rollen, så verificerede ikke ser dem som dubletter af de rigtige kanaler
