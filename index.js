@@ -1014,10 +1014,32 @@ async function opsaetCommunity(guild) {
 const EKSTRA_DATA = fs.existsSync('./ekstra-data.js') ? require('./ekstra-data.js') : { emojis: {}, lyde: {} };
 const FORSLAG_TAGS = [['Nyt', '🆕'], ['Godkendt', '✅'], ['Afvist', '❌'], ['Overvejes', '🤔']];
 const FEJL_TAGS = [['Ny', '🆕'], ['I gang', '🛠️'], ['Løst', '✅']];
+const FORSLAG_SKABELON = `💡 **Sådan laver du et forslag**
+Skriv /forslag i #bot-kommandoer – og følg skabelonen (kopiér og udfyld):
+
+**Titel:** (kort og tydeligt, fx "Ny KOTH-belønning")
+**Hvad vil du have ændret eller tilføjet?**
+(beskriv idéen i 1-3 sætninger)
+**Hvorfor er det en god idé?**
+(hvad får serveren og spillerne ud af det?)
+**Sådan kunne det virke:**
+(eksempler, tal eller trin, hvis du har dem)
+
+Regler: ét forslag pr. tråd · tjek først, at det ikke allerede er foreslået · vær venlig i kommentarerne · stem med 👍`;
+const FEJL_SKABELON = `🐛 **Skabelon til fejlrapporter** (kopiér og udfyld)
+
+**Ingame navn:**
+**Hvornår skete det?** (dato og cirka klokkeslæt)
+**Hvad skete der?**
+**Hvad forventede du skulle ske?**
+**Sådan kan vi gentage fejlen:** (trin 1, 2, 3)
+**Billede eller video:** (vedhæft i ticketten)
+
+Staff skifter tagget: Ny → I gang → Løst.`;
 const tagId = (forum, navn) => forum?.availableTags?.find(t => t.name === navn)?.id;
 async function sikrForum(guild, noegle, navn, topic, tags, ow, parent) {
   let f = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
-  if (f) { await f.permissionOverwrites.set(ow).catch(() => {}); return f; }
+  if (f) { await f.permissionOverwrites.set(ow).catch(() => {}); if (f.topic !== topic) await f.setTopic(topic).catch(() => {}); return f; }
   f = await guild.channels.create({ name: navn, type: ChannelType.GuildForum, topic, parent, permissionOverwrites: ow,
     availableTags: tags.map(([n, e]) => ({ name: n, emoji: { id: null, name: e } })), defaultReactionEmoji: { id: null, name: '👍' } })
     .catch(e => { console.error(`Forum ${navn} (kræver Community):`, e.message); return null; });
@@ -1033,11 +1055,11 @@ async function opsaetForummer(guild) {
   const fOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, botOw, ...staffOw,
     ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AddReactions], deny: [P.SendMessages, P.CreatePublicThreads, P.CreatePrivateThreads] }] : [])];
   const komm = config.kanaler.forslag && guild.channels.cache.get(config.kanaler.forslag)?.parentId;
-  await sikrForum(guild, 'forslagforum', '💡┃forslag-forum', 'Ét forslag pr. tråd. Stem med 👍 og skriv dine tanker. Lav et forslag: gå ind i #bot-kommandoer og skriv /forslag', FORSLAG_TAGS, fOw, komm || undefined);
+  await sikrForum(guild, 'forslagforum', '💡┃forslag-forum', FORSLAG_SKABELON, FORSLAG_TAGS, fOw, komm || undefined);
   // Fejlrapporter-forum: kun staff - hver fejlrapport-ticket får en tråd her
   const fejlOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, botOw, ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.CreatePublicThreads, P.SendMessagesInThreads, P.ManageThreads] }))];
   const staffKat = guild.channels.cache.get(config.kanaler.staffchat)?.parentId;
-  await sikrForum(guild, 'fejlforum', '🐛┃fejlrapporter', 'Alle fejlrapporter samlet. Skift tag (Ny / I gang / Løst), så alle kan se status.', FEJL_TAGS, fejlOw, staffKat || undefined);
+  await sikrForum(guild, 'fejlforum', '🐛┃fejlrapporter', FEJL_SKABELON, FEJL_TAGS, fejlOw, staffKat || undefined);
 }
 async function opretForslagTraad(guild, sid, ign, bruger, tekst) {
   const forum = config.kanaler.forslagforum && await guild.channels.fetch(config.kanaler.forslagforum).catch(() => null);
