@@ -1176,6 +1176,25 @@ client.on('guildMemberUpdate', async (gl, ny) => {
   } catch (e) { console.error('Goons-vagt:', e.message); }
 });
 const goonsBotGiver = new Set();
+// ================= EGNE EMOJIS FRA MAPPEN "emojis" =================
+// Læg PNG/JPG/GIF-filer (max 256 KB) i mappen "emojis" ved siden af index.js. Filnavnet bliver emojiens navn.
+const EMOJI_MAPPE = 'emojis';
+async function opsaetEmojiMappe(guild) {
+  if (!fs.existsSync(EMOJI_MAPPE)) { fs.mkdirSync(EMOJI_MAPPE); fs.writeFileSync(`${EMOJI_MAPPE}/LÆS-MIG.txt`, 'Læg PNG-, JPG- eller GIF-filer her (max 256 KB pr. fil).\r\nFilnavnet bliver emojiens navn, fx sejt_sværd.png -> :sejt_svaerd:\r\nSå skriver du /emojis på Discord, eller genstarter botten.\r\n'); }
+  await guild.emojis.fetch();
+  const resultat = { nye: [], sprunget: [], fejl: [] };
+  for (const fil of fs.readdirSync(EMOJI_MAPPE)) {
+    if (!/\.(png|jpe?g|gif)$/i.test(fil)) continue;
+    const navn = fil.replace(/\.[^.]+$/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').replace(/ø/gi, 'oe').replace(/å/gi, 'aa').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
+    if (navn.length < 2) { resultat.fejl.push(`${fil} (navnet er for kort)`); continue; }
+    if (guild.emojis.cache.some(e => e.name === navn)) { resultat.sprunget.push(navn); continue; }
+    const data = fs.readFileSync(`${EMOJI_MAPPE}/${fil}`);
+    if (data.length > 256 * 1024) { resultat.fejl.push(`${fil} (over 256 KB)`); continue; }
+    await guild.emojis.create({ attachment: data, name: navn, reason: 'Egen emoji fra mappen' }).then(() => resultat.nye.push(navn)).catch(e => resultat.fejl.push(`${fil} (${e.message})`));
+  }
+  if (resultat.nye.length) console.log(`Emojis: ${resultat.nye.length} egne emojis tilføjet: ${resultat.nye.join(', ')}`);
+  return resultat;
+}
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -1323,6 +1342,7 @@ async function opsaetSupport(guild) {
   await opsaetOnboarding(guild);
   await opsaetPynt(guild);
   await opsaetGoons(guild);
+  await opsaetEmojiMappe(guild).catch(e => console.error('Emoji-mappe:', e.message));
   // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
   if (config.layoutVersion !== LAYOUT_VERSION) {
     const r = await layoutAnvend(guild).catch(e => { console.error('Layout:', e.message); return null; });
@@ -2201,6 +2221,7 @@ const kommandoer = [
     .addIntegerOption(o => o.setName('varighed').setDescription('Hvor mange minutter varer det? (standard 60)').setMinValue(5).setMaxValue(720))
     .addStringOption(o => o.setName('beskrivelse').setDescription('Kort beskrivelse (valgfri)'))
     .setDefaultMemberPermissions(P.ManageMessages),
+  new SlashCommandBuilder().setName('emojis').setDescription('Tilføj egne emojis fra mappen "emojis" (admin)').setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('goons').setDescription('Giv eller fjern Goons-rollen (kun to udvalgte)')
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true).addChoices({ name: 'Giv', value: 'giv' }, { name: 'Fjern', value: 'fjern' }))
     .addUserOption(o => o.setName('bruger').setDescription('Hvem?').setRequired(true)),
@@ -2475,6 +2496,12 @@ client.on('interactionCreate', async i => {
       if (i.commandName === 'event') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan oprette events.', flags: MessageFlags.Ephemeral });
         return opretEvent(i);
+      }
+      if (i.commandName === 'emojis') {
+        if (!i.memberPermissions?.has(P.Administrator)) return i.reply({ content: 'Kun admins kan bruge den.', flags: MessageFlags.Ephemeral });
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const r = await opsaetEmojiMappe(i.guild).catch(e => ({ nye: [], sprunget: [], fejl: [e.message] }));
+        return i.editReply(`😀 **Tilføjet:** ${r.nye.length ? r.nye.map(n => `\`${n}\``).join(', ') : 'ingen nye'}\n⏭️ Findes allerede: ${r.sprunget.length}\n${r.fejl.length ? `⚠️ Fejl: ${r.fejl.join('; ')}` : 'Mappen hedder `emojis` ved siden af index.js.'}`);
       }
       if (i.commandName === 'goons') {
         if (!GOONS_UDDELERE.includes(i.user.id)) return i.reply({ content: 'Kun to udvalgte personer kan dele Goons-rollen ud.', flags: MessageFlags.Ephemeral });
