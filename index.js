@@ -977,6 +977,39 @@ client.on('messageCreate', async m => {
     if (b) setTimeout(() => b.delete().catch(() => {}), 2 * 60000);
   } catch (e) { console.error('Samtale-vagt:', e.message); }
 });
+// ================= COMMUNITY-INDSTILLINGER OG SERVERNAVN (kører én gang pr. version) =================
+const SERVER_NAVN = '⚔️ | HopDop HCF'; // ret navnet her og hæv COMMUNITY_VERSION, hvis du vil have et andet
+const COMMUNITY_VERSION = 1;
+async function opsaetCommunity(guild) {
+  config.community = config.community || {};
+  if (config.community.v === COMMUNITY_VERSION) return;
+  const k = config.kanaler;
+  const fund = id => id && guild.channels.cache.has(id) ? id : undefined;
+  const aendr = {
+    name: SERVER_NAVN,
+    preferredLocale: 'da',
+    verificationLevel: 2,          // kræver verificeret e-mail og at kontoen er over 5 min gammel
+    explicitContentFilter: 2,      // scan alle medlemmers billeder
+    defaultMessageNotifications: 1, // kun @mentions som standard (mindre støj)
+    rulesChannel: fund(k.regler),
+    publicUpdatesChannel: fund(k.staffnyheder) || fund(k.botlog),
+    safetyAlertsChannel: fund(k.alarmer) || fund(k.botlog),
+  };
+  Object.keys(aendr).forEach(n => aendr[n] === undefined && delete aendr[n]);
+  await guild.edit({ ...aendr, reason: 'HOPDOP Community-opsætning' })
+    .then(() => console.log('Community: servernavn, regler-kanal, opdaterings-kanal, sprog og sikkerhed er sat.'))
+    .catch(e => console.error('Community-indstillinger:', e.message));
+  // Velkomstskærm (vises til nye medlemmer)
+  const velkomst = [['regler', '📜', 'Læs reglerne før du spiller'], ['serverip', '🌐', 'Server-IP og sådan joiner du'], ['chat', '💬', 'Snak med resten af fællesskabet'], ['ticket', '🎫', 'Brug for hjælp? Opret en ticket'], ['nyheder', '📢', 'Seneste nyt fra HopDop']]
+    .filter(([n]) => fund(k[n])).map(([n, e, d]) => ({ channel_id: k[n], description: d, emoji_name: e }));
+  await guild.client.rest.patch(`/guilds/${guild.id}/welcome-screen`, { body: { enabled: true, description: 'Velkommen til HopDop – dansk Minecraft HCF & KitPvP på 1.8.9! 🏯', welcome_channels: velkomst } })
+    .then(() => console.log('Community: velkomstskærm er sat.')).catch(e => console.error('Velkomstskærm:', e.message));
+  // Onboarding (kræver mange synlige kanaler – prøver, og fortæller hvis Discord afviser det)
+  const synlige = [k.velkommen, k.regler, k.serverip, k.nyheder, k.events, k.chat, k.medier, k.memes, k.botcmd].filter(fund);
+  await guild.client.rest.put(`/guilds/${guild.id}/onboarding`, { body: { enabled: true, mode: 0, default_channel_ids: synlige, prompts: [] } })
+    .then(() => console.log('Community: onboarding er slået til.')).catch(e => console.log('Onboarding kunne ikke slås til automatisk (Discord kræver mindst 7 synlige kanaler og et spørgsmål) – slå den til under Server Settings → Onboarding:', e.message));
+  config.community.v = COMMUNITY_VERSION; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+}
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -1118,6 +1151,7 @@ async function opsaetSupport(guild) {
   await opsaetPrivat(guild);
   await engangsOprydning(guild);
   await opsaetTaleNavne(guild);
+  await opsaetCommunity(guild);
   // Opdel kanalerne automatisk (én gang pr. layout-version). /layout fortryd sætter det tilbage.
   if (config.layoutVersion !== LAYOUT_VERSION) {
     const r = await layoutAnvend(guild).catch(e => { console.error('Layout:', e.message); return null; });
