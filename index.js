@@ -1643,6 +1643,10 @@ client.on('interactionCreate', async i => {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const slettet = await i.channel.bulkDelete(i.options.getInteger('antal'), true).catch(e => { console.error('/cc:', e.message); return null; });
         if (!slettet) return i.editReply('❌ Kunne ikke rydde her. Mangler jeg rettigheden Administrer beskeder?');
+        // Rydder du en kanal med et panel (ansøgninger, fejlrapporter, opret-ticket), sætter botten panelet op igen
+        if ([config.kanaler.ansog, config.kanaler.fejl, config.kanaler.ticket].includes(i.channelId)) {
+          const g = i.guild; opsaetRettigheder(g).catch(() => {}).then(() => opsaetSupport(g)).catch(() => {});
+        }
         return i.editReply(`🧹 Ryddede **${slettet.size}** ${slettet.size === 1 ? 'besked' : 'beskeder'}.${slettet.size < i.options.getInteger('antal') ? '\n(Beskeder ældre end 14 dage kan Discord ikke slette i bulk.)' : ''}`);
       }
       if (i.commandName === 'devlog') {
