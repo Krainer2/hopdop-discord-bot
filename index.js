@@ -1337,6 +1337,7 @@ async function opsaetPrivat(guild) {
     const v = guild.channels.cache.get(id);
     if (!v) { delete privat[id]; continue; }
     planlaegTomtRum(guild, id, 5 * 60000);
+    opdaterPrivatPanel(guild, id);
   }
   gemPrivat();
 }
@@ -1347,8 +1348,9 @@ function privatEmbed(v, navn, ejer) {
 }
 const privatKnapper = id => [new ActionRowBuilder().addComponents(
   new ButtonBuilder().setCustomId(`privat_bed:${id}`).setLabel('Bed om adgang').setEmoji('🙋').setStyle(ButtonStyle.Primary),
-  new ButtonBuilder().setCustomId(`privat_antal:${id}`).setLabel('Skift antal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
-  new ButtonBuilder().setCustomId(`privat_luk:${id}`).setLabel('Slet rum').setEmoji('🗑️').setStyle(ButtonStyle.Danger))];
+  new ButtonBuilder().setCustomId(`privat_admin:${id}`).setLabel('Administrer').setEmoji('⚙️').setStyle(ButtonStyle.Secondary))];
+// Kun rummets ejer samt Ejer/Admin må ændre eller slette et privat rum (fx hvis navnet er skadende)
+const erAdminM = m => erEjer(m) || m.permissions.has(P.Administrator) || m.roles.cache.some(r => r.name === 'Admin');
 async function opdaterPrivatPanel(guild, id) {
   const d = privat[id]; if (!d) return;
   const v = guild.channels.cache.get(id); const k = guild.channels.cache.get(config.kanaler.privatkanal);
@@ -1383,7 +1385,7 @@ async function privatKnap(i) {
   const [handling, id, bruger] = i.customId.split(':');
   const d = privat[id];
   if (handling !== 'privat_opret' && !d) return i.reply({ content: 'Det rum findes ikke mere.', flags: MessageFlags.Ephemeral });
-  const maaStyre = d && (i.user.id === d.ejer || erStaff(i.member));
+  const maaStyre = d && (i.user.id === d.ejer || erAdminM(i.member));
   if (handling === 'privat_opret') {
     const har = Object.entries(privat).find(([, x]) => x.ejer === i.user.id);
     if (har) return i.reply({ content: `Du har allerede et privat rum: <#${har[0]}>. Slet det først.`, flags: MessageFlags.Ephemeral });
@@ -1406,6 +1408,11 @@ async function privatKnap(i) {
     return i.reply({ content: '✅ Anmodningen er sendt til ejeren. Du kan joine, når du får adgang.', flags: MessageFlags.Ephemeral });
   }
   if (!maaStyre) return i.reply({ content: 'Kun ejeren af rummet kan gøre det.', flags: MessageFlags.Ephemeral });
+  if (handling === 'privat_admin') {
+    return i.reply({ flags: MessageFlags.Ephemeral, content: `⚙️ Administrer **${d.navn}**${i.user.id !== d.ejer ? ' (som admin)' : ''}`, components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`privat_antal:${id}`).setLabel('Skift antal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`privat_luk:${id}`).setLabel('Slet rum').setEmoji('🗑️').setStyle(ButtonStyle.Danger))] });
+  }
   if (handling === 'privat_ok' || handling === 'privat_nej') {
     const v = i.guild.channels.cache.get(id);
     if (handling === 'privat_ok' && v) await v.permissionOverwrites.edit(bruger, { ViewChannel: true, Connect: true, Speak: true }).catch(() => {});
@@ -1426,7 +1433,7 @@ async function privatModal(i) {
   const antal = Math.min(25, Math.max(2, parseInt(i.fields.getTextInputValue('antal'), 10) || 4));
   if (i.customId.startsWith('privat_antal_modal')) {
     const id = i.customId.split(':')[1]; const d = privat[id];
-    if (!d || (i.user.id !== d.ejer && !erStaff(i.member))) return i.reply({ content: 'Kun ejeren kan ændre antal.', flags: MessageFlags.Ephemeral });
+    if (!d || (i.user.id !== d.ejer && !erAdminM(i.member))) return i.reply({ content: 'Kun ejeren kan ændre antal.', flags: MessageFlags.Ephemeral });
     await i.guild.channels.cache.get(id)?.setUserLimit(antal).catch(() => {});
     await i.reply({ content: `👥 Rummet har nu **${antal}** pladser.`, flags: MessageFlags.Ephemeral });
     return opdaterPrivatPanel(i.guild, id);
