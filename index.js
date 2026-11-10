@@ -1909,7 +1909,10 @@ async function synkRollerFil(tving = false) {
     // 1) Opret roller og skillelinjer, og saml rækkefølgen
     const raekke = [];
     for (const g of rollerData.grupper) {
-      raekke.push(await findEllerLav(skilleNavn(g.skille), { color: 0x2b2d31, hoist: false }));
+      const skille = await findEllerLav(skilleNavn(g.skille), { color: 0, hoist: false });
+      // Skillelinjen må ikke have farve, ellers overskriver den farven fra Ejer/Admin osv. i medlemslisten
+      if (skille.color !== 0) await skille.setColor(0, 'Skillelinje uden farve').catch(e => console.error('Skillelinje-farve:', e.message));
+      raekke.push(skille);
       for (const r of g.roller) raekke.push(await findEllerLav(rolleNavn(r), { mentionable: false }));
     }
     // 2) Sæt rækkefølgen lige under botten
