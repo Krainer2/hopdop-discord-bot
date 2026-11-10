@@ -1011,6 +1011,7 @@ async function opsaetCommunity(guild) {
   config.community.v = COMMUNITY_VERSION; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 }
 // ================= EKSTRA FUNKTIONER: forum, events, onboarding, emojis, lyde, rolleikoner =================
+const DK_EMOJI = { hoppe_graeder: 'hoppe_græder', hoppe_taenker: 'hoppe_tænker', hoppe_mistaenkelig: 'hoppe_mistænkelig', hoppe_stoette: 'hoppe_støtte', hoppe_graeskar: 'hoppe_græskar', hoppe_nervos: 'hoppe_nervøs', hopdop_groen: 'hopdop_grøn', hopdop_roed: 'hopdop_rød' };
 const EKSTRA_DATA = fs.existsSync('./ekstra-data.js') ? require('./ekstra-data.js') : { emojis: {}, lyde: {} };
 const FORSLAG_TAGS = [['Nyt', '🆕'], ['Godkendt', '✅'], ['Afvist', '❌'], ['Overvejes', '🤔']];
 const FEJL_TAGS = [['Ny', '🆕'], ['I gang', '🛠️'], ['Løst', '✅']];
@@ -1114,15 +1115,16 @@ async function opsaetOnboarding(guild) {
 // Server-emojis, soundboard-lyde og rolleikoner (kører én gang hver; rolleikoner kræver boost-niveau 2)
 async function opsaetPynt(guild) {
   config.pynt = config.pynt || {};
-  if (config.pynt.emojisV !== 4) {
+  if (config.pynt.emojisV !== 5) {
     await guild.emojis.fetch();
     for (const e of guild.emojis.cache.values()) if (e.name.startsWith('hopdop_') || e.name.startsWith('hoppe_')) await e.delete('Erstattes af nye emojis').catch(() => {}); // gamle, enkle emojis
     let n = 0;
     for (const [navn, b64] of Object.entries(EKSTRA_DATA.emojis)) {
-      if (guild.emojis.cache.some(e => e.name === navn)) continue;
-      await guild.emojis.create({ attachment: Buffer.from(b64, 'base64'), name: navn, reason: 'HOPDOP emojis' }).then(() => n++).catch(e => console.error(`Emoji ${navn}:`, e.message));
+      const dk = DK_EMOJI[navn] || navn;
+      if (guild.emojis.cache.some(e => e.name === dk || e.name === navn)) continue;
+      await opretEmoji(guild, dk, Buffer.from(b64, 'base64'), 'HOPDOP emojis').then(() => n++).catch(e => console.error(`Emoji ${navn}:`, e.message));
     }
-    config.pynt.emojisV = 4; console.log(`Pynt: ${n} server-emojis oprettet.`);
+    config.pynt.emojisV = 5; console.log(`Pynt: ${n} server-emojis oprettet.`);
   }
   if (!config.pynt.lyde) {
     for (const [navn, l] of Object.entries(EKSTRA_DATA.lyde)) {
@@ -1178,25 +1180,31 @@ client.on('guildMemberUpdate', async (gl, ny) => {
 const goonsBotGiver = new Set();
 // ================= EGNE EMOJIS FRA MAPPEN "emojis" =================
 // Læg PNG/JPG/GIF-filer (max 256 KB) i mappen "emojis" ved siden af index.js. Filnavnet bliver emojiens navn.
+const ASCII_NAVN = n => n.replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa').replace(/Æ/g, 'Ae').replace(/Ø/g, 'Oe').replace(/Å/g, 'Aa');
+// Prøver først med æ/ø/å i navnet; afviser Discord det, bruges ae/oe/aa som nødløsning
+async function opretEmoji(guild, navn, data, reason) {
+  try { return await guild.emojis.create({ attachment: data, name: navn, reason }); }
+  catch (e) { if (ASCII_NAVN(navn) === navn) throw e; return guild.emojis.create({ attachment: data, name: ASCII_NAVN(navn), reason }); }
+}
 const EMOJI_MAPPE = 'emojis';
 // Forståelige navne ud fra, hvad billedet viser (nøgle = filnavn uden endelse og tal-præfiks)
-const EMOJI_NAVNE = { crying: 'froe_graeder', pepehammer: 'froe_hammer', noo: 'noo_graeder', sad: 'froe_trist', pepe: 'froe_haender_op', pepebless: 'froe_beder',
-  pepestare: 'froe_stirrer', pepeplusone: 'froe_plus_en', thumbsupcat: 'kat_tommel_op', pepedepressed: 'froe_deprimeret', pepegoogoo: 'froe_baby', pepehappy: 'froe_glad' };
+const EMOJI_NAVNE = { crying: 'frø_græder', pepehammer: 'frø_hammer', noo: 'noo_græder', sad: 'frø_trist', pepe: 'frø_hænder_op', pepebless: 'frø_beder',
+  pepestare: 'frø_stirrer', pepeplusone: 'frø_plus_en', thumbsupcat: 'kat_tommel_op', pepedepressed: 'frø_deprimeret', pepegoogoo: 'frø_baby', pepehappy: 'frø_glad' };
 const EMOJI_SPRING = ['pepehang']; // viser selvskade (galge) - tilføjes aldrig
 async function opsaetEmojiMappe(guild) {
-  if (!fs.existsSync(EMOJI_MAPPE)) { fs.mkdirSync(EMOJI_MAPPE); fs.writeFileSync(`${EMOJI_MAPPE}/LÆS-MIG.txt`, 'Læg PNG-, JPG- eller GIF-filer her (max 256 KB pr. fil).\r\nFilnavnet bliver emojiens navn, fx sejt_sværd.png -> :sejt_svaerd:\r\nSå skriver du /emojis på Discord, eller genstarter botten.\r\n'); }
+  if (!fs.existsSync(EMOJI_MAPPE)) { fs.mkdirSync(EMOJI_MAPPE); fs.writeFileSync(`${EMOJI_MAPPE}/LÆS-MIG.txt`, 'Læg PNG-, JPG- eller GIF-filer her (max 256 KB pr. fil).\r\nFilnavnet bliver emojiens navn, fx sejt_sværd.png -> :sejt_sværd:\r\nSå skriver du /emojis på Discord, eller genstarter botten.\r\n'); }
   await guild.emojis.fetch();
   const resultat = { nye: [], sprunget: [], fejl: [] };
   for (const fil of fs.readdirSync(EMOJI_MAPPE)) {
     if (!/\.(png|jpe?g|gif)$/i.test(fil)) continue;
     const stamme = fil.replace(/\.[^.]+$/, '').replace(/^\d+[-_]/, '').toLowerCase();
     if (EMOJI_SPRING.includes(stamme)) { resultat.fejl.push(`${fil} (springet over: viser selvskade)`); continue; }
-    const navn = EMOJI_NAVNE[stamme] || stamme.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').replace(/ø/gi, 'oe').replace(/å/gi, 'aa').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
+    const navn = EMOJI_NAVNE[stamme] || stamme.replace(/[^a-zA-Z0-9_æøåÆØÅ]/g, '_').slice(0, 32);
     if (navn.length < 2) { resultat.fejl.push(`${fil} (navnet er for kort)`); continue; }
-    if (guild.emojis.cache.some(e => e.name === navn)) { resultat.sprunget.push(navn); continue; }
+    if (guild.emojis.cache.some(e => e.name === navn || e.name === ASCII_NAVN(navn))) { resultat.sprunget.push(navn); continue; }
     const data = fs.readFileSync(`${EMOJI_MAPPE}/${fil}`);
     if (data.length > 256 * 1024) { resultat.fejl.push(`${fil} (over 256 KB)`); continue; }
-    await guild.emojis.create({ attachment: data, name: navn, reason: 'Egen emoji fra mappen' }).then(() => resultat.nye.push(navn)).catch(e => resultat.fejl.push(`${fil} (${e.message})`));
+    await opretEmoji(guild, navn, data, 'Egen emoji fra mappen').then(() => resultat.nye.push(navn)).catch(e => resultat.fejl.push(`${fil} (${e.message})`));
   }
   if (resultat.nye.length) console.log(`Emojis: ${resultat.nye.length} egne emojis tilføjet: ${resultat.nye.join(', ')}`);
   return resultat;
