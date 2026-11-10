@@ -933,6 +933,49 @@ async function laasLaeseKanaler(guild) {
     for (const id of [guild.roles.everyone.id, spiller?.id].filter(Boolean)) await k.permissionOverwrites.edit(id, lås).catch(e => console.error(`Lås ${noegle}:`, e.message));
   }
 }
+// ================= COOLDOWN (slowmode) OG SAMTALE-VAGT =================
+const SLOWMODE = { chat: 3, medier: 10, memes: 10, botcmd: 5 }; // sekunder mellem beskeder (staff er undtaget af Discord)
+async function saetSlowmode(guild) {
+  for (const [noegle, sek] of Object.entries(SLOWMODE)) {
+    const k = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+    if (k && k.rateLimitPerUser !== sek) await k.setRateLimitPerUser(sek, 'HOPDOP cooldown').catch(e => console.error(`Slowmode ${noegle}:`, e.message));
+  }
+}
+// I disse kanaler skal der ikke føres lange samtaler (det hører til i #chat)
+const IKKE_SNAK = ['medier', 'memes', 'botcmd'];
+const snakBuffer = new Map(); // kanalId -> [{ a, t }]
+const snakAdvaret = new Map(); // kanalId -> { par, t }
+client.on('messageCreate', async m => {
+  try {
+    if (!m.guild || m.author.bot || m.webhookId || m.system || !m.member) return;
+    if (!IKKE_SNAK.some(n => config.kanaler[n] === m.channelId)) return;
+    if (erStaff(m.member) || m.member.permissions.has(P.Administrator)) return;
+    const nu = Date.now();
+    const buf = (snakBuffer.get(m.channelId) || []).filter(x => nu - x.t < 10 * 60000); buf.push({ a: m.author.id, t: nu });
+    snakBuffer.set(m.channelId, buf.slice(-30));
+    const sidste = buf.slice(-14);
+    const folk = [...new Set(sidste.map(x => x.a))];
+    if (sidste.length < 10 || folk.length !== 2) return;
+    const skift = sidste.filter((x, n) => n && x.a !== sidste[n - 1].a).length;
+    const hver = folk.map(f => sidste.filter(x => x.a === f).length);
+    if (skift < 5 || Math.min(...hver) < 3) return; // skal ligne en frem-og-tilbage-samtale
+    const par = folk.slice().sort().join('|');
+    const adv = snakAdvaret.get(m.channelId);
+    const chat = `<#${config.kanaler.chat}>`;
+    snakBuffer.set(m.channelId, []);
+    if (adv && adv.par === par && nu - adv.t < 20 * 60000) {
+      // Bliver de ved efter advarslen: lille automute på 5 minutter
+      for (const f of folk) { const mem = await m.guild.members.fetch(f).catch(() => null); if (mem && !erStaff(mem)) await mem.timeout(5 * 60000, 'Samtale i forkert kanal (efter advarsel)').catch(e => console.error('Automute:', e.message)); }
+      snakAdvaret.delete(m.channelId);
+      const b = await m.channel.send({ content: `🔇 <@${folk[0]}> og <@${folk[1]}> er sat på mute i 5 minutter, fordi I blev ved. Brug ${chat} til at snakke sammen.`, allowedMentions: { users: folk } }).catch(() => null);
+      if (b) setTimeout(() => b.delete().catch(() => {}), 2 * 60000);
+      return;
+    }
+    snakAdvaret.set(m.channelId, { par, t: nu });
+    const b = await m.channel.send({ content: `⚠️ <@${folk[0]}> <@${folk[1]}> – dette er ikke en kanal til samtaler eller diskussioner. Gå over i ${chat}, hvis I vil snakke sammen. 💬\nBliver I ved her, får I en kort mute på 5 minutter.`, allowedMentions: { users: folk } }).catch(() => null);
+    if (b) setTimeout(() => b.delete().catch(() => {}), 2 * 60000);
+  } catch (e) { console.error('Samtale-vagt:', e.message); }
+});
 async function opsaetRettigheder(guild) {
   await guild.roles.fetch();
   const spiller = guild.roles.cache.get(config.roller['Spiller']);
@@ -946,6 +989,7 @@ async function opsaetRettigheder(guild) {
   if (botRolle) await botRolle.edit({ name: 'HOPDOP Bot', hoist: true, color: 0x4ade80 }).catch(e => console.error('Bot-rolle:', e.message));
   await laasPings(guild);
   await laasLaeseKanaler(guild);
+  await saetSlowmode(guild);
   // #ansøgninger: kun læsning for spillere + knapper til hjemmesiden
   const ansog = config.kanaler.ansog && await guild.channels.fetch(config.kanaler.ansog).catch(() => null);
   if (ansog) {
