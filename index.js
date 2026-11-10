@@ -783,9 +783,25 @@ async function tilServer(i, kommando, beskrivelse, udenSvar = false) {
   ventSvar.set(id, { i, beskrivelse, timer });
   logBro(i.user, kommando);
 }
+// #bot-logs: kun Ejer og Admin kan se kommandoer sendt fra Discord til serveren (holdes væk fra #straf-log)
+async function botLogKanal() {
+  const guild = await client.guilds.fetch(process.env.GUILD_ID);
+  let k = config.kanaler.botlog && await guild.channels.fetch(config.kanaler.botlog).catch(() => null);
+  if (!k) {
+    await guild.roles.fetch();
+    const parent = (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
+    const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks] }];
+    for (const n of ['Ejer', 'Admin']) { const r = guild.roles.cache.find(x => x.name === n); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
+    k = await guild.channels.create({ name: '🤖┃bot-logs', type: ChannelType.GuildText, parent: parent || undefined,
+      topic: 'Kommandoer sendt fra Discord til Minecraft-serveren. Kun Ejer og Admin kan se kanalen.', permissionOverwrites: ow });
+    config.kanaler.botlog = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#bot-logs er oprettet.');
+  }
+  return k;
+}
 function logBro(bruger, kommando) {
-  client.channels.fetch(config.kanaler.straflog).then(k => k?.send({ embeds: [new EmbedBuilder().setColor(0x64748b)
-    .setAuthor({ name: 'HOPDOP · Kommando fra Discord' }).setDescription(`${bruger} kørte: \`${kommando.replace(/`/g, "'")}\``).setTimestamp()] })).catch(() => {});
+  botLogKanal().then(k => k.send({ embeds: [new EmbedBuilder().setColor(0x64748b)
+    .setAuthor({ name: 'HOPDOP · Kommando fra Discord' }).setDescription(`${bruger} kørte: \`${kommando.replace(/`/g, "'")}\``).setTimestamp()] })).catch(e => console.error('#bot-logs:', e.message));
 }
 
 // ---------- Hent chat og svar (hvert 3. sek.) ----------
@@ -1333,6 +1349,7 @@ client.once('clientReady', async () => {
   await opdaterBoostHoved(guild);
   await saetBotLogo();
   await opdaterLiveChatAdgang(guild).catch(e => console.error('#live-chat:', e.message));
+  await botLogKanal().catch(e => console.error('#bot-logs:', e.message));
   tjekBro(); setInterval(tjekBro, 3000);
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
   await synkRollerFil(true); setInterval(synkRollerFil, 60000);
