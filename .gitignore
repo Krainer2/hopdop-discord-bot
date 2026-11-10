@@ -7,6 +7,9 @@ node_modules/
 # Genereres/ændres af botten på din egen PC
 config.json
 forslag.json
+giveaways.json
+uge.json
+web-set.json
 
 # Diverse
 *.log

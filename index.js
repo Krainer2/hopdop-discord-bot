@@ -3,7 +3,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, ChannelType, PermissionFlagsBits: P, EmbedBuilder, ActionRowBuilder,
-  ButtonBuilder, ButtonStyle, SlashCommandBuilder, MessageFlags, ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+  ButtonBuilder, ButtonStyle, SlashCommandBuilder, MessageFlags, ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder } = require('discord.js');
 
 const FARVE = 0x3b82f6;
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
@@ -13,6 +13,29 @@ const IP_NOTE = 'Da vi ikke har VIP, kan du ikke connecte direkte til Hopdop. Jo
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const giveaways = new Map(); // beskedId -> Set(brugerId)
+// Giveaways gemmes i giveaways.json, så de overlever en genstart
+const GW_FIL = 'giveaways.json';
+const gwData = (() => { try { return JSON.parse(fs.readFileSync(GW_FIL, 'utf8')); } catch { return {}; } })();
+const gemGw = () => { for (const [id, set] of giveaways) if (gwData[id]) gwData[id].deltagere = [...set]; fs.writeFileSync(GW_FIL, JSON.stringify(gwData, null, 2)); };
+
+function planlaegGiveaway(msgId) {
+  const g = gwData[msgId];
+  giveaways.set(msgId, new Set(g.deltagere || []));
+  setTimeout(() => afslutGiveaway(msgId), Math.max(1000, g.slut * 1000 - Date.now()));
+}
+async function afslutGiveaway(msgId) {
+  const g = gwData[msgId];
+  if (!g) return;
+  const deltagere = [...(giveaways.get(msgId) || [])];
+  giveaways.delete(msgId); delete gwData[msgId]; gemGw();
+  const kanal = await client.channels.fetch(g.kanal).catch(() => null);
+  if (!kanal) return;
+  const msg = await kanal.messages.fetch(msgId).catch(() => null);
+  const vinder = deltagere.length ? deltagere[Math.floor(Math.random() * deltagere.length)] : null;
+  if (msg) await msg.edit({ embeds: [new EmbedBuilder().setColor(0x64748b).setTitle('🎁 GIVEAWAY SLUT')
+    .setDescription(`**${g.praemie}**\n\nVinder: ${vinder ? `<@${vinder}>` : 'ingen deltog'}\nDeltagere: **${deltagere.length}**`)], components: [] }).catch(() => {});
+  await kanal.send(vinder ? `🎉 Tillykke <@${vinder}>! Du vandt **${g.praemie}**. Opret en ticket for at hente den.` : 'Ingen deltog i giveaway.').catch(() => {});
+}
 const forslagCd = new Map(); // brugerId -> tidspunkt
 const FORSLAG_FIL = 'forslag.json';
 const hentForslag = () => { try { return JSON.parse(fs.readFileSync(FORSLAG_FIL, 'utf8')); } catch { return {}; } };
@@ -106,11 +129,279 @@ async function lavStatsEmbed(navn) {
   return emb;
 }
 
+// ---------- ANSØGNINGER OG STRAFFE FRA HJEMMESIDEN ----------
+// Kræver BOT_NOEGLE i .env (samme nøgle som BOT_NOEGLE i Cloudflare). Nøglen kan kun LÆSE.
+const botNoegle = () => { require('dotenv').config({ override: true, quiet: true }); return process.env.BOT_NOEGLE || ''; };
+const SET_FIL = 'web-set.json'; // hvilke ansøgninger/straffe der allerede er postet
+async function hentPrivat(sti) {
+  const r = await fetch(`${WEB}/api/${sti}`, { headers: { Authorization: `Bot ${botNoegle()}` } });
+  if (!r.ok) throw new Error(`/api/${sti} svarede ${r.status}`);
+  return r.json();
+}
+let etiketter = null; // spørgsmålenes tekster fra ansog-skema.js
+async function hentEtiketter() {
+  if (etiketter) return etiketter;
+  try {
+    const js = await (await fetch(`${WEB}/ansog-skema.js`)).text();
+    etiketter = {};
+    let type = '';
+    for (const linje of js.split('\n')) {
+      const t = linje.match(/^\s{2}([a-z]+):\s*\{/); if (t) type = t[1];
+      const m = linje.match(/id:\s*'([a-z0-9_]+)',\s*label:\s*'((?:[^'\\]|\\.)*)'/);
+      if (m) etiketter[`${type}:${m[1]}`] = m[2].replace(/\\'/g, "'");
+    }
+  } catch { etiketter = {}; }
+  return etiketter;
+}
+const ANS_TYPE = { staff: ['Staff', '🛡️'], bygger: ['Bygger', '🧱'], unban: ['Unban', '🔓'] };
+const STRAF_FARVE = { BAN: 0xef4444, MUTE: 0xf59e0b, KICK: 0x3b82f6, WARN: 0xeab308 };
+
+async function tjekHjemmeside() {
+  if (!botNoegle()) return;
+  let set; try { set = JSON.parse(fs.readFileSync(SET_FIL, 'utf8')); } catch { set = null; }
+  const foerste = !set;
+  set = set || { ansog: [], straffe: [] };
+
+  // Ansøgninger -> #staff-chat
+  try {
+    const { ansogninger = [] } = await hentPrivat('ansog');
+    const kanal = await client.channels.fetch(config.kanaler.staffchat).catch(() => null);
+    const nye = ansogninger.filter(a => !set.ansog.includes(a.id)).reverse();
+    const lbl = await hentEtiketter();
+    for (const a of nye) {
+      set.ansog.push(a.id);
+      if (foerste || !kanal || a.status !== 'ny') continue;
+      const [navn, ikon] = ANS_TYPE[a.type] || [a.type, '📝'];
+      const emb = new EmbedBuilder().setColor(LILLA).setAuthor({ name: 'HOPDOP · Ny ansøgning' })
+        .setTitle(`${ikon} ${navn}: ${a.felter.mcnavn || 'ukendt'}`).setURL(`${WEB}/admin.html`)
+        .setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(a.felter.mcnavn || 'MHF_Steve')}/64`)
+        .setTimestamp(a.oprettet || Date.now()).setFooter({ text: 'Behandl ansøgningen i admin-panelet på hjemmesiden' });
+      let i = 0;
+      for (const [k, v] of Object.entries(a.felter)) {
+        if (!v || i++ >= 20) continue;
+        emb.addFields({ name: (lbl[`${a.type}:${k}`] || k).slice(0, 250), value: String(v).slice(0, 700), inline: String(v).length < 40 });
+      }
+      await kanal.send({ embeds: [emb] }).catch(e => console.error('Ansøgning:', e.message));
+    }
+  } catch (e) { console.error('Ansøgninger fra hjemmesiden:', e.message); }
+
+  // Straffe -> #straf-log
+  try {
+    const { poster = [] } = await hentPrivat('straffe');
+    const kanal = await client.channels.fetch(config.kanaler.straflog).catch(() => null);
+    const nye = poster.filter(p => !String(p.id).startsWith('aktiv-') && !set.straffe.includes(p.id)).reverse();
+    for (const p of nye) {
+      set.straffe.push(p.id);
+      if (foerste || !kanal) continue;
+      const emb = new EmbedBuilder().setColor(STRAF_FARVE[p.type] || 0x22c55e)
+        .setAuthor({ name: 'HOPDOP · Straf-log' })
+        .setTitle(`${p.type.startsWith('UN') ? '✅' : '⚖️'} ${p.type}: ${p.n}`)
+        .setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(p.n)}/64`)
+        .addFields(
+          { name: 'Grund', value: String(p.grund || (p.type.startsWith('UN') ? 'Ophævet' : '-')).slice(0, 1000) },
+          { name: 'Af', value: String(p.af || 'Ukendt'), inline: true },
+          { name: 'Varighed', value: String(p.varighed || (p.til === -1 ? 'Permanent' : '-')), inline: true })
+        .setTimestamp(p.tid || Date.now());
+      await kanal.send({ embeds: [emb] }).catch(e => console.error('Straf:', e.message));
+    }
+  } catch (e) { console.error('Straffe fra hjemmesiden:', e.message); }
+
+  set.ansog = set.ansog.slice(-3000); set.straffe = set.straffe.slice(-5000);
+  fs.writeFileSync(SET_FIL, JSON.stringify(set));
+  if (foerste) console.log('Hjemmeside-forbindelse klar. Nye ansøgninger og straffe postes fra nu af.');
+}
+
+// ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
+async function lavUdskrift(kanal) {
+  let alle = [], foer;
+  for (let n = 0; n < 20; n++) { // op til 2000 beskeder
+    const bunke = await kanal.messages.fetch({ limit: 100, before: foer });
+    if (!bunke.size) break;
+    alle.push(...bunke.values()); foer = bunke.last().id;
+    if (bunke.size < 100) break;
+  }
+  alle = alle.reverse();
+  const tid = d => d.toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const linjer = [`Ticket: ${kanal.name}`, `Lukket: ${tid(new Date())}`, `Beskeder: ${alle.length}`, ''.padEnd(50, '-')];
+  for (const m of alle) {
+    let tekst = m.content || '';
+    for (const e of m.embeds) tekst += `${tekst ? ' ' : ''}[Embed: ${[e.title, e.description].filter(Boolean).join(' - ')}]`;
+    for (const a of m.attachments.values()) tekst += ` [Fil: ${a.url}]`;
+    linjer.push(`[${tid(m.createdAt)}] ${m.author.username}${m.author.bot ? ' (bot)' : ''}: ${tekst.trim() || '(tom)'}`);
+  }
+  const navn = kanal.name.replace(/[^a-zA-Z0-9æøåÆØÅ_-]/g, '') || 'ticket';
+  return { antal: alle.length, fil: new AttachmentBuilder(Buffer.from(linjer.join('\n'), 'utf8'), { name: `ticket-${navn}.txt` }) };
+}
+
+// ---------- /top: leaderboards som på hjemmesiden ----------
+const TOP = {
+  samlet: { navn: 'Samlet placering', info: 'Gennemsnit af plads på kills, K/D og daily-streak (som ingame).' },
+  kills:  { navn: 'Kills',        v: s => s.k,  f: v => `${tal(v)} kills` },
+  kd:     { navn: 'K/D',          v: s => s.k >= 10 ? s.k / Math.max(1, s.d) : 0, f: v => `${tal(v, 2)} K/D`, info: 'Kræver mindst 10 kills.' },
+  daily:  { navn: 'Daily-streak', v: s => s.ds, f: v => `${tal(v)} dage` },
+  rating: { navn: 'Duel-rating',  duel: true, v: s => s.elo, f: v => `${tal(v)} rating` },
+  dsejre: { navn: 'Duel-sejre',   duel: true, v: s => s.s,   f: v => `${tal(v)} ${v === 1 ? 'sejr' : 'sejre'}` },
+  duge:   { navn: 'Ugens duel-sejre', duel: true, v: s => s.us, f: v => `${tal(v)} ${v === 1 ? 'sejr' : 'sejre'}` },
+  koth:   { navn: 'KOTH-sejre (teams)', team: true, v: t => t.koth, f: v => `${tal(v)} KOTH` },
+  tkills: { navn: 'Team-kills',   team: true, v: t => t.k,   f: v => `${tal(v)} kills` },
+};
+const MEDALJE = ['🥇', '🥈', '🥉'];
+
+async function lavTopEmbed(id) {
+  const t = TOP[id];
+  const stats = await hentWeb('stats');
+  let raekker;
+  if (id === 'samlet') {
+    const alle = stats.spillere;
+    const r = {};
+    for (const k of ['kills', 'kd', 'daily']) for (const x of alle) r[x.u] = (r[x.u] || 0) + rank(alle, x, VAL[k]);
+    raekker = alle.map(x => ({ n: x.n, sc: r[x.u] / 3 })).sort((a, b) => a.sc - b.sc).slice(0, 10)
+      .map(x => ({ n: x.n, tekst: `gns. plads ${tal(x.sc, 1)}` }));
+  } else {
+    const liste = t.duel ? (await hentWeb('duel')).spillere || [] : t.team ? stats.teams || [] : stats.spillere;
+    raekker = liste.filter(x => t.v(x) > 0).sort((a, b) => t.v(b) - t.v(a)).slice(0, 10)
+      .map(x => ({ n: x.n, tekst: t.f(t.v(x)) }));
+  }
+  const linjer = raekker.map((x, i) => `${MEDALJE[i] || `\`${String(i + 1).padStart(2)}.\``} **${x.n}** · ${x.tekst}`);
+  return new EmbedBuilder().setColor(LILLA)
+    .setAuthor({ name: 'HOPDOP · Leaderboards' })
+    .setTitle(`🏆 Top 10 · ${t.navn}`)
+    .setURL(`${WEB}/leaderboards.html`)
+    .setDescription((linjer.join('\n') || 'Ingen på listen endnu.') + (t.info ? `\n\n*${t.info}*` : ''))
+    .setFooter({ text: 'Brug /stats <navn> for at se en spiller · Klik på titlen for alle leaderboards' });
+}
+
+// ---------- /online og botstatus ----------
+async function lavOnlineEmbed() {
+  const stats = await hentWeb('stats');
+  const online = [...(stats.online || [])].sort((a, b) => a.localeCompare(b));
+  const teamAf = n => { const sp = stats.spillere.find(x => x.n.toLowerCase() === n.toLowerCase());
+    const t = sp && (stats.teams || []).find(t => t.m.some(m => m.u === sp.u)); return t ? ` · *${t.n}*` : ''; };
+  const minSiden = stats.opdateret ? Math.max(0, Math.round((Date.now() - stats.opdateret) / 60000)) : null;
+  return new EmbedBuilder().setColor(online.length ? 0x22c55e : 0x64748b)
+    .setAuthor({ name: 'HOPDOP · Online' })
+    .setTitle(`🟢 ${online.length} ${online.length === 1 ? 'spiller' : 'spillere'} online`)
+    .setDescription(online.length ? online.map(n => `• **${n}**${teamAf(n)}`).join('\n').slice(0, 4000) : 'Der er ingen online lige nu. Vær den første!')
+    .addFields({ name: '🌐 Join', value: `\`${SERVER_IP}\`` })
+    .setFooter({ text: `Listen opdateres hvert 5. min.${minSiden === null ? '' : ` · Sidst for ${minSiden} min. siden`}` });
+}
+
+async function onlineTekst() {
+  try {
+    const on = (await hentWeb('stats')).online || [];
+    if (!on.length) return 'Ingen online lige nu. Vær den første!';
+    const navne = on.slice(0, 15).map(n => `\`${n}\``).join(' ');
+    return `**${on.length}** ${on.length === 1 ? 'spiller' : 'spillere'}: ${navne}${on.length > 15 ? ` +${on.length - 15}` : ''}`;
+  } catch { return 'Kunne ikke hente lige nu.'; }
+}
+
+async function opdaterStatus() {
+  try {
+    const stats = await hentWeb('stats');
+    const on = stats.online || [];
+    client.user.setPresence({ activities: [{ name: `Hopdop · ${on.length} online`, type: ActivityType.Playing }], status: 'online' });
+    const noegle = on.join(',');
+    if (ipBesked && noegle !== sidstOnline) {
+      sidstOnline = noegle;
+      const emb = EmbedBuilder.from(ipBesked.embeds[0]);
+      emb.spliceFields(0, 25, { name: '🟢 Online lige nu', value: await onlineTekst() });
+      ipBesked = await ipBesked.edit({ embeds: [emb] }).catch(() => ipBesked);
+    }
+  } catch { /* prøv igen næste gang */ }
+}
+
+// ---------- UGENTLIG TOP: søndag kl. 20 i #events ----------
+// uge.json husker tallene fra ugens start, så vi kan regne ugens kills og daily ud.
+const UGE_FIL = 'uge.json';
+const ugeKey = d => { const t = new Date(d); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return t.toISOString().slice(0, 10); };
+async function tjekUgeTop() {
+  try {
+    const nu = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Copenhagen' }));
+    let uge = {}; try { uge = JSON.parse(fs.readFileSync(UGE_FIL, 'utf8')); } catch { /* ny fil */ }
+    const stats = await hentWeb('stats');
+    if (!uge.start) { // første gang: gem udgangspunkt
+      uge = { start: ugeKey(nu), kills: Object.fromEntries(stats.spillere.map(x => [x.u, x.k])), postet: '' };
+      fs.writeFileSync(UGE_FIL, JSON.stringify(uge)); return;
+    }
+    const iDag = nu.toISOString().slice(0, 10);
+    if (nu.getDay() !== 0 || nu.getHours() < 20 || uge.postet === iDag) return;
+    const kanal = await client.channels.fetch(config.kanaler.events).catch(() => null);
+    if (!kanal) return;
+    const top3 = (liste, fn, f) => liste.map(x => ({ n: x.n, v: fn(x) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 3)
+      .map((x, i) => `${MEDALJE[i]} **${x.n}** · ${f(x.v)}`).join('\n') || 'Ingen denne uge';
+    const duel = await hentWeb('duel').catch(() => ({ spillere: [] }));
+    const emb = new EmbedBuilder().setColor(LILLA).setAuthor({ name: 'HOPDOP · Ugens bedste' })
+      .setTitle('🏆 Ugens top 3')
+      .setDescription('Godt spillet i denne uge! Her er ugens skarpeste spillere:')
+      .addFields(
+        { name: '⚔️ Flest kills denne uge', inline: true, value: top3(stats.spillere, x => x.k - (uge.kills[x.u] ?? x.k), v => `${tal(v)} kills`) },
+        { name: '🥊 Flest duel-sejre', inline: true, value: top3(duel.spillere || [], x => x.us, v => `${tal(v)} ${v === 1 ? 'sejr' : 'sejre'}`) },
+        { name: '📅 Længste daily-streak', inline: true, value: top3(stats.spillere, x => x.ds, v => `${tal(v)} dage`) })
+      .setFooter({ text: 'Ny uge starter nu · Se alle lister med /top' });
+    await kanal.send({ embeds: [emb] });
+    fs.writeFileSync(UGE_FIL, JSON.stringify({ start: ugeKey(new Date(nu.getTime() + 86400000)), kills: Object.fromEntries(stats.spillere.map(x => [x.u, x.k])), postet: iDag }));
+    console.log('Ugens top er postet i #events.');
+  } catch (e) { console.error('Ugens top fejlede:', e.message); }
+}
+
+// ---------- #bot-guide: alle kommandoer forklaret (laves af botten selv) ----------
+async function opdaterGuide(guild) {
+  let kanal = config.kanaler.botguide && await guild.channels.fetch(config.kanaler.botguide).catch(() => null);
+  if (!kanal) {
+    const info = (await guild.channels.fetch(config.kanaler.velkommen).catch(() => null))?.parentId;
+    kanal = await guild.channels.create({
+      name: '📖┃bot-guide', type: ChannelType.GuildText, parent: info || undefined,
+      topic: 'Alle HOPDOP-bottens kommandoer forklaret',
+      permissionOverwrites: [
+        { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
+        { id: config.roller['Spiller'], allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions] },
+        ...STAFF.map(id => ({ id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] })),
+      ],
+    });
+    config.kanaler.botguide = kanal.id;
+    fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#bot-guide er oprettet.');
+  }
+  const bc = `<#${config.kanaler.botcmd}>`;
+  const emb = new EmbedBuilder().setColor(LILLA).setAuthor({ name: 'HOPDOP · Bot-guide' })
+    .setTitle('🤖 Alt hvad HOPDOP Bot kan')
+    .setDescription(`Skriv **/** i ${bc} for at se kommandoerne. Tal og stats kommer direkte fra Minecraft-serveren.`)
+    .addFields(
+      { name: '📊 Stats og lister', value: [
+        '`/stats <spiller>` · kills, K/D, placering, team og duels, ligesom ingame',
+        '`/top <liste>` · top 10 i kills, K/D, daily, duels, KOTH m.m.',
+        '`/online` · hvem der er på serveren lige nu',
+      ].join('\n') },
+      { name: '🌐 Server', value: [
+        '`/ip` · serverens IP og hvordan du joiner',
+        `<#${config.kanaler.serverip}> · IP og antal online, opdateres af sig selv`,
+      ].join('\n') },
+      { name: '💡 Forslag', value: '`/forslag` · send en idé til serveren. Staff svarer, og du får en DM.' },
+      { name: '🎫 Hjælp', value: `<#${config.kanaler.ticket}> · opret en ticket (support, køb, ansøgning eller anmeld en spiller)` },
+      { name: '🎁 Events', value: [
+        `Giveaways · tryk **Deltag** i <#${config.kanaler.giveaways}>`,
+        `Ugens top 3 · hver søndag kl. 20 i <#${config.kanaler.events}>`,
+      ].join('\n') },
+      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway\n`/say` · send en pæn besked som botten' },
+    )
+    .setFooter({ text: `Stats, top og online virker kun i #bot-kommandoer · Hjemmeside: ${WEB.replace('https://', '')}` });
+  const beskeder = await kanal.messages.fetch({ limit: 10 });
+  const gammel = beskeder.find(m => m.author.id === client.user.id);
+  if (gammel) await gammel.edit({ embeds: [emb] }); else await kanal.send({ embeds: [emb] });
+}
+
+// Kommandoer som almindelige spillere kun må bruge i #bot-kommandoer (staff må overalt)
+const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online'];
+
 const erStaff = m => m.roles.cache.some(r => STAFF.includes(r.id));
 const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'] };
 
 const kommandoer = [
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
+  new SlashCommandBuilder().setName('top').setDescription('Se top 10 på et leaderboard')
+    .addStringOption(o => o.setName('liste').setDescription('Hvilket leaderboard?').setRequired(true)
+      .addChoices(...Object.entries(TOP).map(([value, t]) => ({ name: t.navn, value })))),
+  new SlashCommandBuilder().setName('online').setDescription('Se hvem der er online på Hopdop'),
   new SlashCommandBuilder().setName('stats').setDescription('Se en spillers stats fra Hopdop')
     .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setAutocomplete(true).setMaxLength(16)),
   new SlashCommandBuilder().setName('giveaway').setDescription('Start en giveaway')
@@ -135,13 +426,22 @@ const kommandoer = [
 client.once('clientReady', async () => {
   console.log('Online som', client.user.tag);
   client.user.setPresence({ activities: [{ name: 'Hopdop', type: ActivityType.Playing }], status: 'online' });
+  opdaterStatus(); setInterval(opdaterStatus, 120000);
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   await guild.commands.set(kommandoer);
   console.log('Kommandoer registreret.');
   await opdaterIpKanal(guild).catch(e => console.error('Kunne ikke opdatere #server-ip:', e.message));
+  await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
+  for (const id of Object.keys(gwData)) planlaegGiveaway(id);
+  if (Object.keys(gwData).length) console.log(`${Object.keys(gwData).length} giveaway(s) fortsætter.`);
+  setInterval(tjekUgeTop, 60000); tjekUgeTop();
+  tjekHjemmeside(); setInterval(tjekHjemmeside, 120000);
+  if (!botNoegle()) console.log('BOT_NOEGLE mangler i .env - ansøgninger og straffe postes, så snart den er tilføjet.');
 });
 
 // Skriver (eller retter) IP-beskeden i #server-ip, hver gang botten starter
+let ipBesked = null; // beskeden i #server-ip, så online-tallet kan opdateres
+let sidstOnline = null;
 async function opdaterIpKanal(guild) {
   const kanal = await guild.channels.fetch(config.kanaler.serverip).catch(() => null);
   if (!kanal) return console.log('#server-ip findes ikke.');
@@ -157,11 +457,11 @@ async function opdaterIpKanal(guild) {
       '',
       `⚠️ ${IP_NOTE}`,
     ].join('\n'))
+    .addFields({ name: '🟢 Online lige nu', value: await onlineTekst() })
     .setFooter({ text: 'Du kan altid skrive /ip i #bot-kommandoer' });
   const beskeder = await kanal.messages.fetch({ limit: 20 });
   const gammel = beskeder.find(m => m.author.id === client.user.id);
-  if (gammel) await gammel.edit({ content: '', embeds: [embed] });
-  else await kanal.send({ embeds: [embed] });
+  ipBesked = gammel ? await gammel.edit({ content: '', embeds: [embed] }) : await kanal.send({ embeds: [embed] });
   console.log('#server-ip er opdateret.');
 }
 
@@ -206,6 +506,14 @@ client.on('interactionCreate', async i => {
 
     // ---------- KOMMANDOER ----------
     if (i.isChatInputCommand()) {
+      if (OFFENTLIGE.includes(i.commandName) && i.channelId !== config.kanaler.botcmd && !erStaff(i.member))
+        return i.reply({ content: `Brug kommandoer i <#${config.kanaler.botcmd}> 🙂`, flags: MessageFlags.Ephemeral });
+      if (i.commandName === 'top' || i.commandName === 'online') {
+        await i.deferReply();
+        const emb = await (i.commandName === 'top' ? lavTopEmbed(i.options.getString('liste')) : lavOnlineEmbed())
+          .catch(e => { console.error('Web-fejl:', e.message); return null; });
+        return i.editReply(emb ? { embeds: [emb] } : 'Kunne ikke hente data lige nu. Prøv igen om lidt.');
+      }
       if (i.commandName === 'forslag') {
         const venter = 60000 - (Date.now() - (forslagCd.get(i.user.id) || 0));
         if (venter > 0) return i.reply({ content: `Vent ${Math.ceil(venter / 1000)} sekunder før dit næste forslag.`, flags: MessageFlags.Ephemeral });
@@ -256,15 +564,8 @@ client.on('interactionCreate', async i => {
           embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🎁 GIVEAWAY').setDescription(`**${praemie}**\n\nSlutter <t:${slut}:R>\nStartet af ${i.user}\nDeltagere: **0**`)],
           components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('gw').setLabel('Deltag').setEmoji('🎉').setStyle(ButtonStyle.Primary))],
         });
-        giveaways.set(msg.id, new Set());
-        setTimeout(async () => {
-          const deltagere = [...(giveaways.get(msg.id) || [])];
-          giveaways.delete(msg.id);
-          const vinder = deltagere.length ? deltagere[Math.floor(Math.random() * deltagere.length)] : null;
-          await msg.edit({ embeds: [new EmbedBuilder().setColor(0x64748b).setTitle('🎁 GIVEAWAY SLUT')
-            .setDescription(`**${praemie}**\n\nVinder: ${vinder ? `<@${vinder}>` : 'ingen deltog'}\nDeltagere: **${deltagere.length}**`)], components: [] }).catch(() => {});
-          await kanal.send(vinder ? `🎉 Tillykke <@${vinder}>! Du vandt **${praemie}**. Opret en ticket for at hente den.` : 'Ingen deltog i giveaway.').catch(() => {});
-        }, min * 60000);
+        gwData[msg.id] = { kanal: kanal.id, praemie, slut, deltagere: [] };
+        planlaegGiveaway(msg.id); gemGw();
         return i.reply({ content: `Giveaway startet i ${kanal}.`, flags: MessageFlags.Ephemeral });
       }
     }
@@ -277,6 +578,7 @@ client.on('interactionCreate', async i => {
       if (!s) return i.reply({ content: 'Giveaway er slut.', flags: MessageFlags.Ephemeral });
       if (s.has(i.user.id)) { s.delete(i.user.id); await i.reply({ content: 'Du er meldt fra.', flags: MessageFlags.Ephemeral }); }
       else { s.add(i.user.id); await i.reply({ content: 'Du er med! 🎉', flags: MessageFlags.Ephemeral }); }
+      gemGw();
       const emb = EmbedBuilder.from(i.message.embeds[0]);
       emb.setDescription(i.message.embeds[0].description.replace(/Deltagere: \*\*\d+\*\*/, `Deltagere: **${s.size}**`));
       return i.message.edit({ embeds: [emb] }).catch(() => {});
@@ -321,8 +623,10 @@ client.on('interactionCreate', async i => {
       if (!erStaff(i.member) && i.user.id !== ejerId) return i.reply({ content: 'Kun staff eller ticket-ejeren kan lukke.', flags: MessageFlags.Ephemeral });
       await i.reply('🔒 Ticketten lukkes om 5 sekunder...');
       const log = i.guild.channels.cache.get(config.kanaler.ticketlog);
+      const udskrift = await lavUdskrift(i.channel).catch(e => { console.error('Udskrift fejlede:', e.message); return null; });
       if (log) log.send({ embeds: [new EmbedBuilder().setColor(0x64748b).setTitle('📁 Ticket lukket')
-        .setDescription(`Kanal: **${i.channel.name}**\nEjer: <@${ejerId}>\nLukket af: ${i.user}`)] }).catch(() => {});
+        .setDescription(`Kanal: **${i.channel.name}**\nEjer: <@${ejerId}>\nLukket af: ${i.user}${udskrift ? `\nBeskeder: **${udskrift.antal}**\n\nHele samtalen ligger i filen nedenfor.` : ''}`)],
+        files: udskrift ? [udskrift.fil] : [] }).catch(() => {});
       setTimeout(() => i.channel.delete().catch(() => {}), 5000);
     }
   } catch (e) {
