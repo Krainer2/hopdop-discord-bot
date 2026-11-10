@@ -3,7 +3,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const { Client, GatewayIntentBits, ChannelType, PermissionFlagsBits: P, EmbedBuilder, ActionRowBuilder,
-  ButtonBuilder, ButtonStyle, SlashCommandBuilder, MessageFlags, ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, escapeMarkdown } = require('discord.js');
+  ButtonBuilder, ButtonStyle, SlashCommandBuilder, MessageFlags, ActivityType, ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, escapeMarkdown, Partials } = require('discord.js');
 
 const FARVE = 0x3b82f6;
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
@@ -11,7 +11,8 @@ const STAFF = ['Ejer', 'Admin', 'Mod', 'Hjælper'].map(n => config.roller[n]);
 const SERVER_IP = process.env.SERVER_IP || 'hopdop.superawesome.dk';
 const IP_NOTE = 'Da vi ikke har VIP, kan du ikke connecte direkte til Hopdop. Join med IP\'en ovenfor, og følg instrukserne, der kommer i chatten.';
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMessageReactions],
+  partials: [Partials.Message, Partials.Reaction, Partials.User] });
 const giveaways = new Map(); // beskedId -> Set(brugerId)
 // Giveaways gemmes i giveaways.json, så de overlever en genstart
 const GW_FIL = 'giveaways.json';
@@ -869,22 +870,39 @@ client.on('guildMemberUpdate', (gl, ny) => {
   }
 });
 
-// #roller: spillerne vælger selv notifikationsroller med knapper
+// #roller: spillerne vælger selv notifikationsroller ved at reagere med en emoji
+let rolleBeskedId = null;
+const rensEmoji = e => String(e || '').replace(/️/g, '');
 async function opdaterRolleVaelger(guild) {
   const g = (rollerData?.grupper || []).find(x => x.vaelg);
   if (!g) return;
   const kanal = await sikrKanal(guild, 'roller', '🔔┃roller', 'Vælg selv hvad du vil have ping om', config.kanaler.velkommen);
   const emb = new EmbedBuilder().setColor(LILLA).setAuthor({ name: 'HOPDOP · Roller' })
     .setTitle('🔔 Vælg dine notifikationer')
-    .setDescription(['Tryk på en knap for at få eller fjerne rollen. Du får kun ping om det, du har valgt.', '',
-      ...g.roller.map(r => `${r.emoji || '•'} **${r.navn}** · ${r.info || ''}`)].join('\n'))
-    .setFooter({ text: 'Tryk igen for at fjerne rollen' });
-  const raekker = [];
-  for (let n = 0; n < g.roller.length; n += 5) raekker.push(new ActionRowBuilder().addComponents(g.roller.slice(n, n + 5).map(r =>
-    new ButtonBuilder().setCustomId(`rolle:${r.navn}`).setLabel(r.navn).setEmoji(r.emoji || '🔔').setStyle(ButtonStyle.Secondary))));
-  const gammel = await bottensBesked(kanal);
-  if (gammel) await gammel.edit({ embeds: [emb], components: raekker }); else await kanal.send({ embeds: [emb], components: raekker });
+    .setDescription(['Reager med en emoji for at få rollen. Fjern din reaktion for at fjerne den igen.', '',
+      ...g.roller.map(r => `${r.emoji || '🔔'}  **${r.navn}** · ${r.info || ''}`)].join('\n'))
+    .setFooter({ text: 'Du får kun ping om det, du har valgt' });
+  let besked = await bottensBesked(kanal);
+  if (besked) besked = await besked.edit({ embeds: [emb], components: [] }); else besked = await kanal.send({ embeds: [emb] });
+  rolleBeskedId = besked.id;
+  for (const r of g.roller) if (!besked.reactions.cache.some(x => rensEmoji(x.emoji.name) === rensEmoji(r.emoji) && x.me)) await besked.react(r.emoji || '🔔').catch(e => console.error('Reaktion:', e.message));
 }
+async function rolleReaktion(reaktion, bruger, tilfoej) {
+  if (bruger.bot) return;
+  if (reaktion.partial) reaktion = await reaktion.fetch().catch(() => null);
+  if (!reaktion || reaktion.message.id !== rolleBeskedId) return;
+  const g = (rollerData?.grupper || []).find(x => x.vaelg);
+  const valg = g?.roller.find(r => rensEmoji(r.emoji) === rensEmoji(reaktion.emoji.name));
+  if (!valg) { if (tilfoej) reaktion.users.remove(bruger.id).catch(() => {}); return; }
+  const guild = reaktion.message.guild;
+  const rolle = guild.roles.cache.find(x => x.name === valg.navn);
+  const m = await guild.members.fetch(bruger.id).catch(() => null);
+  if (!rolle || !m) return;
+  if (tilfoej) await m.roles.add(rolle, '#roller').catch(e => console.error('Rolle:', e.message));
+  else await m.roles.remove(rolle, '#roller').catch(e => console.error('Rolle:', e.message));
+}
+client.on('messageReactionAdd', (r, u) => rolleReaktion(r, u, true));
+client.on('messageReactionRemove', (r, u) => rolleReaktion(r, u, false));
 // Ping-rolle til automatiske opslag (fx "Giveaway"), hvis den findes
 const ping = (guild, navn) => { const r = guild?.roles.cache.find(x => x.name === navn); return r ? `<@&${r.id}>` : ''; };
 
@@ -1394,16 +1412,6 @@ client.on('interactionCreate', async i => {
       gemGw();
       const g = gwData[i.message.id];
       return i.message.edit({ embeds: [g ? gwEmbed(g, s.size) : i.message.embeds[0]] }).catch(() => {});
-    }
-    if (i.customId.startsWith('rolle:')) {
-      const navn = i.customId.slice(6);
-      const g = (rollerData?.grupper || []).find(x => x.vaelg);
-      if (!g || !g.roller.some(r => rolleNavn(r) === navn)) return i.reply({ content: 'Den rolle kan ikke vælges her.', flags: MessageFlags.Ephemeral });
-      const r = i.guild.roles.cache.find(x => x.name === navn);
-      if (!r) return i.reply({ content: 'Rollen findes ikke endnu.', flags: MessageFlags.Ephemeral });
-      const har = i.member.roles.cache.has(r.id);
-      await (har ? i.member.roles.remove(r) : i.member.roles.add(r));
-      return i.reply({ content: har ? `🔕 Du har fjernet **${navn}**.` : `🔔 Du har nu **${navn}** og får ping om det.`, flags: MessageFlags.Ephemeral });
     }
     if (i.customId === 'link_start') return i.reply(linkSvar(i.user.id));
     if (i.customId === 'link_fjern') return i.reply(await unlinkSvar(i.guild, i.user.id));
