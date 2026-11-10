@@ -1185,7 +1185,7 @@ async function opsaetEmojiMappe(guild) {
   const resultat = { nye: [], sprunget: [], fejl: [] };
   for (const fil of fs.readdirSync(EMOJI_MAPPE)) {
     if (!/\.(png|jpe?g|gif)$/i.test(fil)) continue;
-    const navn = fil.replace(/\.[^.]+$/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').replace(/ø/gi, 'oe').replace(/å/gi, 'aa').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
+    const navn = fil.replace(/\.[^.]+$/, '').replace(/^\d+[-_]/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').replace(/ø/gi, 'oe').replace(/å/gi, 'aa').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
     if (navn.length < 2) { resultat.fejl.push(`${fil} (navnet er for kort)`); continue; }
     if (guild.emojis.cache.some(e => e.name === navn)) { resultat.sprunget.push(navn); continue; }
     const data = fs.readFileSync(`${EMOJI_MAPPE}/${fil}`);
