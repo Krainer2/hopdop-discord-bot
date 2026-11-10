@@ -1905,6 +1905,9 @@ async function synkRollerFil(tving = false) {
     const top = guild.members.me.roles.highest.position;
     const pos = raekke.filter(r => r.position < top).map((r, idx, arr) => ({ role: r.id, position: top - 1 - idx }));
     await guild.roles.setPositions(pos).catch(e => console.error('Rækkefølge af roller:', e.message));
+    // "Bots" ligger altid nederst, under alle andre roller
+    const botsR = guild.roles.cache.find(r => r.name === 'Bots' && !r.managed);
+    if (botsR) await botsR.setPosition(1).catch(e => console.error('Bots-position:', e.message));
     // 3) Giv roller fra "tildel"
     const medlemmer = await guild.members.fetch();
     for (const [navn, roller] of Object.entries(rollerData.tildel || {})) {
