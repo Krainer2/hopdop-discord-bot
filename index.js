@@ -620,7 +620,7 @@ async function opdaterLinkKanal(guild) {
 // ---------- SERVER-IKON OG BANNER (fra hjemmesidens logo) ----------
 async function saetGrafik(guild) {
   config.grafik = config.grafik || {};
-  const IKON_VERSION = 3, BANNER_VERSION = 3; // hæv tallet, når billedet skal skiftes igen
+  const IKON_VERSION = 4, BANNER_VERSION = 4; // hæv tallet, når billedet skal skiftes igen
   if (config.grafik.ikon !== IKON_VERSION && fs.existsSync('assets/ikon.png')) {
     await guild.setIcon('assets/ikon.png', 'HOPDOP-logo').then(() => { config.grafik.ikon = IKON_VERSION; console.log('Server-ikon er sat.'); })
       .catch(e => console.error('Ikon:', e.message));
@@ -881,7 +881,7 @@ const MC_NAVN = /^[A-Za-z0-9_]{1,16}$/;
 
 // ---------- BOT-LOGO ----------
 async function saetBotLogo() {
-  const V = 3; // 3 = HopDop-logo med pagode
+  const V = 4; // 4 = originale billeder
   config.grafik = config.grafik || {};
   if (config.grafik.botlogo === V) return;
   let ok = true;
