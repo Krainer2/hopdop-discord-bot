@@ -1223,24 +1223,36 @@ async function afslutFejlTraad(guild, ticketKanalId) {
 }
 // Onboarding: nye vælger selv, hvad de vil have ping om (giver rollerne automatisk)
 // Åben "Velkommen"-kategori: Discord kræver mindst 5 skrivbare standardkanaler til onboarding, og resten af serveren er låst
-const AABEN_KAT = '👋┃Velkommen';
-const AABNE_KANALER = [['💬┃snak', 'Kun for nye: sig hej, indtil du er blevet spiller. Så får du adgang til de rigtige kanaler.'], ['❓┃spørgsmål', 'Spørg om serveren, reglerne eller spillet'], ['🎮┃find-spillere', 'Find nogen at spille med'], ['📸┃screenshots', 'Del billeder fra serveren'], ['😂┃sjov', 'Sjove billeder og klip']];
+const AABEN_KAT = '🚪┃Ikke verificeret';
+const AABEN_KAT_GAMLE = ['👋┃Velkommen'];
+// [navn, emne, gamle navne]
+const AABNE_KANALER = [
+  ['👋┃sig-hej', 'Kun for ikke verificerede: sig hej, indtil du har accepteret reglerne i #regler. Så får du adgang til resten af serveren.', ['💬┃snak']],
+  ['❓┃spørgsmål', 'Spørg om serveren, reglerne eller hvordan du kommer i gang.', []],
+  ['🎯┃find-spillere', 'Find nogen at spille med.', ['🎮┃find-spillere']],
+  ['🖼️┃galleri', 'Del billeder fra serveren.', ['📸┃screenshots']],
+  ['🎲┃fri-snak', 'Snak om alt muligt andet.', ['😂┃sjov']],
+];
+const findAabenKat = guild => guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && [AABEN_KAT, ...AABEN_KAT_GAMLE].includes(c.name));
 async function opsaetAabenKategori(guild) {
   const alle = guild.roles.everyone;
-  let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AABEN_KAT);
+  let kat = findAabenKat(guild);
   if (!kat) kat = await guild.channels.create({ name: AABEN_KAT, type: ChannelType.GuildCategory, position: 0, permissionOverwrites: [{ id: alle.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AddReactions] }] }).catch(e => { console.error('Åben kategori:', e.message); return null; });
   if (!kat) return [];
+  if (kat.name !== AABEN_KAT) await kat.setName(AABEN_KAT, 'Tydeligere navn').catch(e => console.error('Omdøb kategori:', e.message));
   const ids = [];
-  for (const [navn, emne] of AABNE_KANALER) {
-    let k = guild.channels.cache.find(c => c.parentId === kat.id && c.name === navn);
+  for (const [navn, emne, gamle] of AABNE_KANALER) {
+    let k = guild.channels.cache.find(c => c.parentId === kat.id && [navn, ...gamle].includes(c.name));
     if (!k) k = await guild.channels.create({ name: navn, type: ChannelType.GuildText, parent: kat.id, topic: emne, rateLimitPerUser: 10, permissionOverwrites: [{ id: alle.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AddReactions], deny: [P.MentionEveryone] }], reason: 'Standardkanal til onboarding' }).catch(e => { console.error('Åben kanal ' + navn + ':', e.message); return null; });
+    else if (k.name !== navn || k.topic !== emne) await k.edit({ name: navn, topic: emne }, 'Tydeligere navne').catch(e => console.error('Omdøb ' + navn + ':', e.message));
     if (k) ids.push(k.id);
   }
   return ids;
 }
 // De åbne Velkommen-kanaler er kun til nye: skjul dem for Spiller-rollen, så verificerede ikke ser dem som dubletter af de rigtige kanaler
 async function skjulAabenForSpillere(guild) {
-  const kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AABEN_KAT);
+  if (findAabenKat(guild)) await opsaetAabenKategori(guild);
+  const kat = findAabenKat(guild);
   const spiller = config.roller && guild.roles.cache.get(config.roller['Spiller']);
   if (!kat || !spiller) return;
   for (const c of [kat, ...guild.channels.cache.filter(c => c.parentId === kat.id).values()]) {
