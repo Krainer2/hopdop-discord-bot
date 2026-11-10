@@ -253,7 +253,7 @@ async function tjekHjemmeside() {
   // Ansøgninger -> #staff-chat
   try {
     const { ansogninger = [] } = await hentPrivat('ansog');
-    const kanal = await client.channels.fetch(config.kanaler.staffchat).catch(() => null);
+    const kanal = await client.channels.fetch(config.kanaler.ansogsvar || config.kanaler.staffchat).catch(() => null);
     const nye = ansogninger.filter(a => !set.ansog.includes(a.id)).reverse();
     const lbl = await hentEtiketter();
     for (const a of nye) {
@@ -789,7 +789,7 @@ async function botLogKanal() {
   let k = config.kanaler.botlog && await guild.channels.fetch(config.kanaler.botlog).catch(() => null);
   if (!k) {
     await guild.roles.fetch();
-    const parent = (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
+    const parent = config.kanaler.adminkat || (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
     const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks] }];
     for (const n of ['Ejer', 'Admin']) { const r = guild.roles.cache.find(x => x.name === n); if (r) ow.push({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }); }
     k = await guild.channels.create({ name: '🤖┃bot-logs', type: ChannelType.GuildText, parent: parent || undefined,
@@ -809,7 +809,7 @@ let broNr = null;
 async function liveChatKanal(guild) {
   let k = config.kanaler.livechat && await guild.channels.fetch(config.kanaler.livechat).catch(() => null);
   if (!k) {
-    const parent = (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
+    const parent = config.kanaler.adminkat || (await guild.channels.fetch(config.kanaler.staffchat).catch(() => null))?.parentId;
     k = await guild.channels.create({ name: '💬┃live-chat', type: ChannelType.GuildText, parent: parent || undefined,
       topic: 'Chatten fra Minecraft i realtid. Skriv /sig for at skrive ingame.', permissionOverwrites: [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }] });
     config.kanaler.livechat = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
@@ -1013,6 +1013,7 @@ async function opsaetSupport(guild) {
     });
   }
   await opsaetStaffKanaler(guild);
+  await opsaetAdmin(guild);
   // Screenshare: kun dem med rollen (staff + midlertidigt), alle andre mister Stream-rettigheden
   await opsaetScreenshare(guild);
   // Staff-kategori med liste over aktive tickets
@@ -1220,6 +1221,36 @@ async function opsaetStaffKanaler(guild) {
       console.log(`${sk.navn} er oprettet.`);
     } else await k.permissionOverwrites.set(ow).catch(() => {});
     if (sk.emb) await opdaterPanel(k, sk.emb[0], { embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(sk.emb[0]).setDescription(sk.emb[1])] });
+  }
+}
+// ================= ADMIN-KATEGORI (kun Ejer og Admin) =================
+const ADMIN_KAT = '[ 🛡️ ] ADMIN';
+async function opsaetAdmin(guild) {
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const roller = ['Ejer', 'Admin'].map(n => guild.roles.cache.find(r => r.name === n)).filter(Boolean);
+  const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory, P.ManageChannels] },
+    ...roller.map(r => ({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory] }))];
+  let kat = config.kanaler.adminkat && guild.channels.cache.get(config.kanaler.adminkat)
+    || guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === ADMIN_KAT);
+  if (!kat) kat = await guild.channels.create({ name: ADMIN_KAT, type: ChannelType.GuildCategory, permissionOverwrites: ow }).catch(e => { console.error('Admin-kategori:', e.message); return null; });
+  if (!kat) return;
+  config.kanaler.adminkat = kat.id;
+  // Kanal til ansøgninger fra hjemmesiden
+  let ak = config.kanaler.ansogsvar && guild.channels.cache.get(config.kanaler.ansogsvar);
+  const akOw = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory] },
+    ...roller.map(r => ({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AddReactions] }))];
+  if (!ak) ak = await guild.channels.create({ name: '📝┃ansøgninger-afventer', type: ChannelType.GuildText, parent: kat.id, topic: 'Nye ansøgninger fra hjemmesiden, der venter på svar. Kun Ejer og Admin.', permissionOverwrites: akOw }).catch(e => { console.error('Ansøgninger-kanal:', e.message); return null; });
+  else await ak.permissionOverwrites.set(akOw).catch(() => {});
+  if (ak) config.kanaler.ansogsvar = ak.id;
+  fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  // Ticket-log: kun Ejer/Admin (og botten)
+  const tl = config.kanaler.ticketlog && guild.channels.cache.get(config.kanaler.ticketlog);
+  if (tl) await tl.permissionOverwrites.set([{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory] },
+    ...roller.map(r => ({ id: r.id, allow: [P.ViewChannel, P.ReadMessageHistory] }))]).catch(() => {});
+  // Flyt kanalerne ind (deres egne rettigheder bevares)
+  for (const noegle of ['ansogsvar', 'livechat', 'botlog', 'ticketlog']) {
+    const c = config.kanaler[noegle] && guild.channels.cache.get(config.kanaler[noegle]);
+    if (c && c.parentId !== kat.id) await c.setParent(kat.id, { lockPermissions: false }).catch(e => console.error(`Flyt ${noegle}:`, e.message));
   }
 }
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
