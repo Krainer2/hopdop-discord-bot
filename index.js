@@ -1155,7 +1155,7 @@ async function opdaterGuide(guild) {
         `Giveaways · tryk **Deltag** i <#${config.kanaler.giveaways}>`,
         `Ugens top 3 · hver søndag kl. 20 i <#${config.kanaler.events}>`,
       ].join('\n') },
-      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/say` · send en pæn besked som botten' },
+      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/cc <antal>` · ryd de sidste beskeder i kanalen (fx `/cc 40`)\n`/say` · send en pæn besked som botten' },
     )
     .setFooter({ text: `Stats, top og online virker kun i #bot-kommandoer · Hjemmeside: ${WEB.replace('https://', '')}` });
   const beskeder = await kanal.messages.fetch({ limit: 10 });
@@ -1236,6 +1236,9 @@ const kommandoer = [
       .addChoices(...Object.entries(ADGANG_KOMMANDOER).map(([value, b]) => ({ name: `${value} · ${b}`.slice(0, 100), value }))))
     .addRoleOption(o => o.setName('rolle').setDescription('Hvilken rolle?'))
     .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('cc').setDescription('Ryd de sidste beskeder i denne kanal (staff)')
+    .addIntegerOption(o => o.setName('antal').setDescription('Hvor mange beskeder? (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
+    .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('devlog').setDescription('Skriv en opdatering i #dev-log (staff)')
     .setDefaultMemberPermissions(P.ManageMessages),
 ].map(c => c.toJSON());
@@ -1444,6 +1447,13 @@ client.on('interactionCreate', async i => {
           case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
           default: return i.reply({ content: 'Ukendt kommando.', flags: MessageFlags.Ephemeral });
         }
+      }
+      if (i.commandName === 'cc') {
+        if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan rydde chatten.', flags: MessageFlags.Ephemeral });
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const slettet = await i.channel.bulkDelete(i.options.getInteger('antal'), true).catch(e => { console.error('/cc:', e.message); return null; });
+        if (!slettet) return i.editReply('❌ Kunne ikke rydde her. Mangler jeg rettigheden Administrer beskeder?');
+        return i.editReply(`🧹 Ryddede **${slettet.size}** ${slettet.size === 1 ? 'besked' : 'beskeder'}.${slettet.size < i.options.getInteger('antal') ? '\n(Beskeder ældre end 14 dage kan Discord ikke slette i bulk.)' : ''}`);
       }
       if (i.commandName === 'devlog') {
         return i.showModal(new ModalBuilder().setCustomId('devlog_modal').setTitle('Ny dev-log').addComponents(
