@@ -23,6 +23,54 @@ function planlaegGiveaway(msgId) {
   giveaways.set(msgId, new Set(g.deltagere || []));
   setTimeout(() => afslutGiveaway(msgId), Math.max(1000, g.slut * 1000 - Date.now()));
 }
+const GW_SLUT_FIL = 'giveaways-slut.json'; // afsluttede giveaways (til "træk ny vinder")
+const gwSlut = (() => { try { return JSON.parse(fs.readFileSync(GW_SLUT_FIL, 'utf8')); } catch { return {}; } })();
+const gemGwSlut = () => { const ids = Object.keys(gwSlut); for (const id of ids.slice(0, -30)) delete gwSlut[id]; fs.writeFileSync(GW_SLUT_FIL, JSON.stringify(gwSlut)); };
+const traek = (liste, n) => { const kopi = [...liste], ud = []; while (kopi.length && ud.length < n) ud.push(kopi.splice(Math.floor(Math.random() * kopi.length), 1)[0]); return ud; };
+
+function gwEmbed(g, antal) {
+  return new EmbedBuilder().setColor(0xaa00aa).setAuthor({ name: 'HOPDOP · Giveaway' })
+    .setTitle(`🎁 ${g.praemie}`)
+    .setDescription([
+      `Tryk på **🎉 Deltag** for at være med!`, '',
+      `⏰ Slutter: <t:${g.slut}:R> (<t:${g.slut}:t>)`,
+      `🏆 Vindere: **${g.vindere || 1}**`,
+      `👥 Deltagere: **${antal}**`,
+      `🎙️ Startet af: <@${g.af}>`,
+    ].join('\n'));
+}
+
+// Sender vinder-besked i kanalen (alle kan se den) + DM til hver vinder
+async function udraabVindere(kanal, msgId, g, vindere, nyTraekning = false) {
+  const link = `https://discord.com/channels/${kanal.guildId}/${kanal.id}/${msgId}`;
+  if (!vindere.length) return kanal.send({ embeds: [new EmbedBuilder().setColor(0x64748b)
+    .setTitle(`🎁 ${g.praemie}`).setDescription('Ingen deltog i giveawayen, så der er ingen vinder denne gang.')] }).catch(() => {});
+  const tags = vindere.map(v => `<@${v}>`).join(' ');
+  await kanal.send({
+    content: `🎉 ${tags}`,
+    embeds: [new EmbedBuilder().setColor(0x22c55e).setAuthor({ name: nyTraekning ? 'HOPDOP · Ny vinder trukket' : 'HOPDOP · Giveaway slut' })
+      .setTitle(`🏆 ${vindere.length > 1 ? 'Vinderne' : 'Vinderen'} af ${g.praemie}`)
+      .setDescription(`Tillykke til ${tags}! 🎉\n\nTjek dine DM'er. Der står, hvordan du får din præmie.\n[Gå til giveawayen](${link})`)],
+    allowedMentions: { users: vindere },
+  }).catch(() => {});
+  const ticket = config.kanaler.ticket ? `<#${config.kanaler.ticket}>` : '#opret-ticket';
+  for (const v of vindere) {
+    const u = await client.users.fetch(v).catch(() => null);
+    if (!u) continue;
+    await u.send({ embeds: [new EmbedBuilder().setColor(0x22c55e).setAuthor({ name: 'HOPDOP · Du har vundet!' })
+      .setTitle(`🎉 Tillykke! Du vandt ${g.praemie}`)
+      .setDescription([
+        `Du har vundet **${g.praemie}** i en giveaway på HOPDOP-Discorden!`, '',
+        '**Sådan får du din præmie:**',
+        `**1.** Opret en ticket i ${ticket} og vælg **Support**.`,
+        `**2.** Skriv, at du har vundet **${g.praemie}**, og hvad du hedder ingame.`,
+        `**3.** Du kan også skrive direkte til <@${g.af}>, som startede giveawayen.`, '',
+        '⏳ Hent præmien inden for 7 dage, ellers kan den blive givet videre.',
+        `[Se giveawayen](${link})`,
+      ].join('\n'))] }).catch(() => kanal.send(`<@${v}> Jeg kunne ikke sende dig en DM. Opret en ticket for at få din præmie. 🎁`).catch(() => {}));
+  }
+}
+
 async function afslutGiveaway(msgId) {
   const g = gwData[msgId];
   if (!g) return;
@@ -31,11 +79,37 @@ async function afslutGiveaway(msgId) {
   const kanal = await client.channels.fetch(g.kanal).catch(() => null);
   if (!kanal) return;
   const msg = await kanal.messages.fetch(msgId).catch(() => null);
-  const vinder = deltagere.length ? deltagere[Math.floor(Math.random() * deltagere.length)] : null;
-  if (msg) await msg.edit({ embeds: [new EmbedBuilder().setColor(0x64748b).setTitle('🎁 GIVEAWAY SLUT')
-    .setDescription(`**${g.praemie}**\n\nVinder: ${vinder ? `<@${vinder}>` : 'ingen deltog'}\nDeltagere: **${deltagere.length}**`)], components: [] }).catch(() => {});
-  await kanal.send(vinder ? `🎉 Tillykke <@${vinder}>! Du vandt **${g.praemie}**. Opret en ticket for at hente den.` : 'Ingen deltog i giveaway.').catch(() => {});
+  const vindere = traek(deltagere, g.vindere || 1);
+  gwSlut[msgId] = { ...g, deltagere, vundet: vindere }; gemGwSlut();
+  if (msg) await msg.edit({
+    embeds: [new EmbedBuilder().setColor(0x64748b).setAuthor({ name: 'HOPDOP · Giveaway slut' }).setTitle(`🎁 ${g.praemie}`)
+      .setDescription(`🏆 ${vindere.length ? `Vinder: ${vindere.map(v => `<@${v}>`).join(', ')}` : 'Ingen deltog'}\n👥 Deltagere: **${deltagere.length}**\n🎙️ Startet af: <@${g.af}>\n⏰ Sluttede <t:${g.slut}:R>`)],
+    components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('gw_reroll').setLabel('Træk ny vinder (staff)').setEmoji('🔁').setStyle(ButtonStyle.Secondary))],
+  }).catch(() => {});
+  await udraabVindere(kanal, msgId, g, vindere);
 }
+
+// Finder giveaways, som botten har glemt (fx startet før en opdatering), og får dem til at slutte rigtigt
+async function findGlemteGiveaways() {
+  const kanal = await client.channels.fetch(config.kanaler.giveaways).catch(() => null);
+  if (!kanal) return;
+  const beskeder = await kanal.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!beskeder) return;
+  for (const m of beskeder.values()) {
+    if (m.author.id !== client.user.id || gwData[m.id]) continue;
+    if (!m.components.some(r => r.components.some(c => c.customId === 'gw'))) continue;
+    const e = m.embeds[0]; if (!e) continue;
+    const slut = Number(((e.description || '').match(/<t:(\d+):R>/) || [])[1]);
+    const praemie = ((e.description || '').match(/^\*\*(.+?)\*\*/) || [])[1] || (e.title || '').replace(/^🎁\s*/, '') || 'Præmie';
+    const af = ((e.description || '').match(/<@!?(\d+)>/) || [])[1] || client.user.id;
+    if (!slut) continue;
+    gwData[m.id] = { kanal: kanal.id, praemie, slut, af, vindere: 1, deltagere: [] };
+    console.log(`Fandt glemt giveaway: ${praemie}`);
+    planlaegGiveaway(m.id);
+  }
+  gemGw();
+}
+
 const forslagCd = new Map(); // brugerId -> tidspunkt
 const FORSLAG_FIL = 'forslag.json';
 const hentForslag = () => { try { return JSON.parse(fs.readFileSync(FORSLAG_FIL, 'utf8')); } catch { return {}; } };
@@ -136,6 +210,11 @@ const SET_FIL = 'web-set.json'; // hvilke ansøgninger/straffe der allerede er p
 async function hentPrivat(sti) {
   const r = await fetch(`${WEB}/api/${sti}`, { headers: { Authorization: `Bot ${botNoegle()}` } });
   if (!r.ok) throw new Error(`/api/${sti} svarede ${r.status}`);
+  return r.json();
+}
+async function postPrivat(sti, body) {
+  const r = await fetch(`${WEB}/api/${sti}`, { method: 'POST', headers: { Authorization: `Bot ${botNoegle()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`POST /api/${sti} svarede ${r.status}`);
   return r.json();
 }
 let etiketter = null; // spørgsmålenes tekster fra ansog-skema.js
@@ -253,12 +332,15 @@ async function tjekLinks() {
       // Samme Minecraft-konto må kun være forbundet med én Discord
       for (const [d, l] of Object.entries(linkData.links)) if (l.u === k.u && d !== v.d) delete linkData.links[d];
       linkData.links[v.d] = { u: k.u, n: k.n, r: '' };
+      devlogDiscord(`🔗 **${k.n}** har forbundet sin Minecraft med Discord`);
       delete linkData.ventende[kode];
       console.log(`Forbundet: ${k.n} <-> ${v.d}`);
       client.users.fetch(v.d).then(u => u.send({ embeds: [new EmbedBuilder().setColor(0x22c55e)
         .setTitle('✅ Din Discord er forbundet!')
         .setDescription(`Du er nu forbundet med **${k.n}** på Hopdop.\nDin rank-rolle bliver sat automatisk, og \`/stats\` uden navn viser nu dine egne stats.`)] })).catch(() => {});
     }
+    // Fortæl hjemmesiden, hvem der er forbundet (serveren giver så belønningen første gang)
+    for (const l of Object.values(linkData.links)) if (!l.b) { try { await postPrivat('link', { type: 'bekraeft', u: l.u }); l.b = true; } catch (e) { console.error('Bekræft link:', e.message); } }
     // Ranks -> roller (kun når noget har ændret sig)
     for (const [d, l] of Object.entries(linkData.links)) {
       const r = ranks[l.u];
@@ -272,6 +354,152 @@ async function tjekLinks() {
     gemLink();
   } catch (e) { console.error('Link:', e.message); }
 }
+
+// ---------- Hjælper: find/opret en læs-kanal, som kun botten og staff skriver i ----------
+async function sikrKanal(guild, noegle, navn, emne, foraelderKanal) {
+  let k = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+  if (k) return k;
+  const parent = (await guild.channels.fetch(foraelderKanal).catch(() => null))?.parentId;
+  k = await guild.channels.create({
+    name: navn, type: ChannelType.GuildText, parent: parent || undefined, topic: emne,
+    permissionOverwrites: [
+      { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
+      { id: config.roller['Spiller'], allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions] },
+      ...STAFF.map(id => ({ id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] })),
+    ],
+  });
+  config.kanaler[noegle] = k.id;
+  fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  console.log(`#${navn} er oprettet.`);
+  return k;
+}
+async function bottensBesked(kanal) {
+  const b = await kanal.messages.fetch({ limit: 20 }).catch(() => null);
+  return b ? b.filter(m => m.author.id === client.user.id).last() : null; // ældste besked fra botten
+}
+
+// ---------- LIVE #leaderboards (opdateres hvert 5. min) ----------
+const LB_LISTER = ['samlet', 'kills', 'kd', 'daily', 'rating', 'koth'];
+let lbBesked = null;
+async function opdaterLeaderboards() {
+  try {
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    const kanal = await sikrKanal(guild, 'leaderboards', '🏆┃leaderboards', 'Top 10 på Hopdop - opdateres af sig selv hvert 5. minut', config.kanaler.chat);
+    const embeds = [];
+    for (const id of LB_LISTER) embeds.push(await lavTopEmbed(id, true));
+    embeds[embeds.length - 1].setFooter({ text: 'Opdateres af sig selv hvert 5. minut · Se alle lister på hjemmesiden' }).setTimestamp();
+    const indhold = { content: '## 🏆 HOPDOP Leaderboards\nSe dine egne stats med `/stats` i #bot-kommandoer.', embeds };
+    if (!lbBesked) lbBesked = await bottensBesked(kanal);
+    lbBesked = lbBesked ? await lbBesked.edit(indhold) : await kanal.send(indhold);
+  } catch (e) { console.error('Leaderboards:', e.message); }
+}
+
+// ---------- #server-status (grøn = oppe, rød = nede) ----------
+// Serveren sender data hvert 5. minut. Kommer der intet i 12 minutter, regnes den som nede.
+const STATUS_FIL = 'status.json';
+let statusBesked = null;
+async function opdaterServerStatus() {
+  try {
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    const kanal = await sikrKanal(guild, 'serverstatus', '🟢┃server-status', 'Er Hopdop oppe? Opdateres af sig selv', config.kanaler.velkommen);
+    let st; try { st = JSON.parse(fs.readFileSync(STATUS_FIL, 'utf8')); } catch { st = { oppe: null, siden: Date.now() }; }
+    let stats = null; try { stats = await hentWeb('stats'); } catch { /* hjemmesiden svarer ikke */ }
+    const sidst = stats?.opdateret || 0;
+    const oppe = !!sidst && Date.now() - sidst < 12 * 60000;
+    const online = oppe ? (stats.online || []).length : 0;
+    if (st.oppe !== null && st.oppe !== oppe) {
+      const varighed = Math.max(1, Math.round((Date.now() - st.siden) / 60000));
+      const tid = varighed >= 60 ? `${Math.floor(varighed / 60)} t. ${varighed % 60} min.` : `${varighed} min.`;
+      await kanal.send({ embeds: [new EmbedBuilder().setColor(oppe ? 0x22c55e : 0xef4444)
+        .setTitle(oppe ? '🟢 Hopdop er oppe igen!' : '🔴 Hopdop er nede')
+        .setDescription(oppe ? `Serveren var nede i **${tid}**\nVelkommen tilbage! 🎉\nJoin: \`${SERVER_IP}\`` : `Vi har ikke hørt fra serveren i over 12 minutter.\nStaff kigger på det. Følg med her.`)
+        .setTimestamp()] }).catch(() => {});
+      st.siden = Date.now();
+    }
+    if (st.oppe === null) st.siden = Date.now();
+    st.oppe = oppe; fs.writeFileSync(STATUS_FIL, JSON.stringify(st));
+    const nytNavn = `${oppe ? '🟢' : '🔴'}┃server-status`;
+    if (kanal.name !== nytNavn) await kanal.setName(nytNavn).catch(() => {}); // Discord tillader kun få navneskift, så kun ved ændring
+    const emb = new EmbedBuilder().setColor(oppe ? 0x22c55e : 0xef4444)
+      .setAuthor({ name: 'HOPDOP · Server-status' })
+      .setTitle(oppe ? '🟢 Serveren er OPPE' : '🔴 Serveren er NEDE')
+      .addFields(
+        { name: oppe ? '⏱️ Oppe siden' : '⏱️ Nede siden', value: `<t:${Math.floor(st.siden / 1000)}:R>`, inline: true },
+        { name: '👥 Online', value: oppe ? `**${online}** ${online === 1 ? 'spiller' : 'spillere'}` : '-', inline: true },
+        { name: '📡 Sidste data', value: sidst ? `<t:${Math.floor(sidst / 1000)}:R>` : 'Aldrig', inline: true },
+        { name: '🌐 IP', value: `\`${SERVER_IP}\`` })
+      .setFooter({ text: 'Tjekkes hvert 2. minut · Ved nedetid kommer der en besked herunder' }).setTimestamp();
+    if (!statusBesked) statusBesked = await bottensBesked(kanal);
+    statusBesked = statusBesked ? await statusBesked.edit({ embeds: [emb] }) : await kanal.send({ embeds: [emb] });
+  } catch (e) { console.error('Server-status:', e.message); }
+}
+
+// ---------- AUTO-MOD (Discords egen AutoMod - virker også når botten er offline) ----------
+async function opsaetAutoMod(guild) {
+  const findes = await guild.autoModerationRules.fetch().catch(() => null);
+  if (!findes) return console.log('Kunne ikke læse AutoMod-regler (mangler botten "Administrer server"?)');
+  const alarm = { type: 2, metadata: { channel: config.kanaler.straflog } };
+  const regler = [
+    { name: 'HOPDOP · Invites til andre Discords', triggerType: 1,
+      triggerMetadata: { regexPatterns: ['(discord\\.gg|discord(app)?\\.com/invite|dsc\\.gg)/[a-zA-Z0-9-]+'] },
+      actions: [{ type: 1, metadata: { customMessage: 'Reklame for andre Discord-servere er ikke tilladt på HOPDOP.' } }, alarm, { type: 3, metadata: { durationSeconds: 600 } }] },
+    { name: 'HOPDOP · Massetags', triggerType: 5,
+      triggerMetadata: { mentionTotalLimit: 5, mentionRaidProtectionEnabled: true },
+      actions: [{ type: 1, metadata: { customMessage: 'Du tagger for mange på én gang.' } }, alarm, { type: 3, metadata: { durationSeconds: 600 } }] },
+    { name: 'HOPDOP · Spam', triggerType: 3, triggerMetadata: {},
+      actions: [{ type: 1, metadata: { customMessage: 'Din besked ligner spam og blev stoppet.' } }, alarm] },
+    { name: 'HOPDOP · Grove ord og 18+', triggerType: 4, triggerMetadata: { presets: [2, 3] },
+      actions: [{ type: 1, metadata: { customMessage: 'Hold en god tone på HOPDOP.' } }, alarm] },
+  ];
+  for (const r of regler) {
+    if (findes.some(x => x.name === r.name)) continue;
+    if (r.triggerType !== 1 && findes.some(x => x.triggerType === r.triggerType)) { console.log(`AutoMod: der findes allerede en regel af typen til "${r.name}"`); continue; }
+    await guild.autoModerationRules.create({ ...r, eventType: 1, enabled: true, exemptRoles: STAFF, reason: 'HOPDOP auto-mod' })
+      .then(() => { console.log('AutoMod-regel oprettet:', r.name); devlogDiscord(`🛡️ Ny auto-mod regel: **${r.name.replace('HOPDOP · ', '')}**`); })
+      .catch(e => console.error('AutoMod:', r.name, e.message));
+  }
+}
+
+// ---------- DEVLOG ----------
+// 1) devlog.json i bot-mappen: Claude skriver opdateringer her (når du skriver /devlog i chatten). Botten poster nye.
+// 2) Ændringer på Discorden (nye kanaler/roller, auto-mod, nye links) samles og postes hvert 30. min.
+// 3) /devlog i Discord (kun staff): skriv selv en opdatering.
+const DEVLOG_FIL = 'devlog.json', DEVLOG_POSTET = 'devlog-postet.json';
+const discordAendringer = [];
+function devlogDiscord(tekst) { if (!discordAendringer.includes(tekst)) discordAendringer.push(tekst); }
+function devlogEmbed(titel, punkter, kategori) {
+  return new EmbedBuilder().setColor(0x6366f1).setAuthor({ name: `HOPDOP · Dev-log${kategori ? ` · ${kategori}` : ''}` })
+    .setTitle(`🛠️ ${titel}`)
+    .setDescription(punkter.map(p => p.startsWith('•') || /^\p{Extended_Pictographic}/u.test(p) ? p : `• ${p}`).join('\n').slice(0, 4000))
+    .setTimestamp();
+}
+async function postDevlog() {
+  try {
+    const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
+    if (!kanal) return;
+    let liste = []; try { liste = JSON.parse(fs.readFileSync(DEVLOG_FIL, 'utf8')); } catch { /* ingen fil endnu */ }
+    let postet = []; try { postet = JSON.parse(fs.readFileSync(DEVLOG_POSTET, 'utf8')); } catch { /* første gang */ }
+    for (const d of liste) {
+      if (!d.id || postet.includes(d.id)) continue;
+      await kanal.send({ embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
+      postet.push(d.id);
+    }
+    fs.writeFileSync(DEVLOG_POSTET, JSON.stringify(postet.slice(-500)));
+  } catch (e) { console.error('Devlog:', e.message); }
+}
+async function postDiscordAendringer() {
+  if (!discordAendringer.length) return;
+  const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
+  if (!kanal) return;
+  const punkter = discordAendringer.splice(0, discordAendringer.length);
+  await kanal.send({ embeds: [devlogEmbed('Ændringer på Discorden', punkter, 'Discord')] }).catch(e => console.error('Devlog:', e.message));
+}
+// Discord-ændringer, som spillerne kan se (tickets og staff-kanaler tæller ikke med)
+const erOffentlig = c => c && !String(c.topic || '').startsWith('ticket:') && c.permissionOverwrites?.cache?.get(config.roller['Spiller'])?.allow?.has(P.ViewChannel);
+client.on('channelCreate', c => { if (erOffentlig(c)) devlogDiscord(`📁 Ny kanal: <#${c.id}>`); });
+client.on('channelDelete', c => { if (erOffentlig(c)) devlogDiscord(`🗑️ Kanalen **#${c.name}** er fjernet`); });
+client.on('roleCreate', r => { if (!r.managed) devlogDiscord(`🏷️ Ny rolle: <@&${r.id}>`); });
+client.on('roleDelete', r => { if (!r.managed) devlogDiscord(`🗑️ Rollen **${r.name}** er fjernet`); });
 
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
 async function lavUdskrift(kanal) {
@@ -309,7 +537,7 @@ const TOP = {
 };
 const MEDALJE = ['🥇', '🥈', '🥉'];
 
-async function lavTopEmbed(id) {
+async function lavTopEmbed(id, kompakt = false) {
   const t = TOP[id];
   const stats = await hentWeb('stats');
   let raekker;
@@ -330,7 +558,8 @@ async function lavTopEmbed(id) {
     .setTitle(`🏆 Top 10 · ${t.navn}`)
     .setURL(`${WEB}/leaderboards.html`)
     .setDescription((linjer.join('\n') || 'Ingen på listen endnu.') + (t.info ? `\n\n*${t.info}*` : ''))
-    .setFooter({ text: 'Brug /stats <navn> for at se en spiller · Klik på titlen for alle leaderboards' });
+    .setFooter(kompakt ? null : { text: 'Brug /stats <navn> for at se en spiller · Klik på titlen for alle leaderboards' })
+    .setAuthor(kompakt ? null : { name: 'HOPDOP · Leaderboards' });
 }
 
 // ---------- /online og botstatus ----------
@@ -443,13 +672,18 @@ async function opdaterGuide(guild) {
         '`/ip` · serverens IP og hvordan du joiner',
         `<#${config.kanaler.serverip}> · IP og antal online, opdateres af sig selv`,
       ].join('\n') },
+      { name: '📺 Kanaler der opdaterer sig selv', value: [
+        `<#${config.kanaler.leaderboards}> · top 10 i kills, K/D, daily, duels og KOTH`,
+        `<#${config.kanaler.serverstatus}> · er serveren oppe? 🟢/🔴`,
+        `<#${config.kanaler.devlog}> · hvad der er nyt på serveren og Discorden`,
+      ].join('\n') },
       { name: '💡 Forslag', value: '`/forslag` · send en idé til serveren. Staff svarer, og du får en DM.' },
       { name: '🎫 Hjælp', value: `<#${config.kanaler.ticket}> · opret en ticket (support, køb, ansøgning eller anmeld en spiller)` },
       { name: '🎁 Events', value: [
         `Giveaways · tryk **Deltag** i <#${config.kanaler.giveaways}>`,
         `Ugens top 3 · hver søndag kl. 20 i <#${config.kanaler.events}>`,
       ].join('\n') },
-      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway\n`/say` · send en pæn besked som botten' },
+      { name: '🛡️ Kun staff', value: '`/godkend` og `/afvis` · svar på forslag\n`/giveaway` · start en giveaway (vælg antal vindere)\n`/devlog` · skriv en opdatering i #dev-log\n`/say` · send en pæn besked som botten' },
     )
     .setFooter({ text: `Stats, top og online virker kun i #bot-kommandoer · Hjemmeside: ${WEB.replace('https://', '')}` });
   const beskeder = await kanal.messages.fetch({ limit: 10 });
@@ -476,6 +710,7 @@ const kommandoer = [
   new SlashCommandBuilder().setName('giveaway').setDescription('Start en giveaway')
     .addStringOption(o => o.setName('praemie').setDescription('Hvad kan man vinde?').setRequired(true))
     .addIntegerOption(o => o.setName('minutter').setDescription('Hvor mange minutter?').setRequired(true).setMinValue(1).setMaxValue(10080))
+    .addIntegerOption(o => o.setName('vindere').setDescription('Hvor mange vindere? (standard 1)').setMinValue(1).setMaxValue(10))
     .setDefaultMemberPermissions(P.ManageMessages),
   new SlashCommandBuilder().setName('forslag').setDescription('Send et forslag til serveren'),
   new SlashCommandBuilder().setName('godkend').setDescription('Godkend et forslag')
@@ -490,6 +725,8 @@ const kommandoer = [
     .addStringOption(o => o.setName('titel').setDescription('Titel').setRequired(true))
     .addStringOption(o => o.setName('tekst').setDescription('Tekst').setRequired(true))
     .setDefaultMemberPermissions(P.ManageMessages),
+  new SlashCommandBuilder().setName('devlog').setDescription('Skriv en opdatering i #dev-log (staff)')
+    .setDefaultMemberPermissions(P.ManageMessages),
 ].map(c => c.toJSON());
 
 client.once('clientReady', async () => {
@@ -500,12 +737,18 @@ client.once('clientReady', async () => {
   await guild.commands.set(kommandoer);
   console.log('Kommandoer registreret.');
   await opdaterIpKanal(guild).catch(e => console.error('Kunne ikke opdatere #server-ip:', e.message));
-  await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   for (const id of Object.keys(gwData)) planlaegGiveaway(id);
+  await findGlemteGiveaways().catch(e => console.error('Glemte giveaways:', e.message));
   if (Object.keys(gwData).length) console.log(`${Object.keys(gwData).length} giveaway(s) fortsætter.`);
   setInterval(tjekUgeTop, 60000); tjekUgeTop();
   tjekHjemmeside(); setInterval(tjekHjemmeside, 120000);
   tjekLinks(); setInterval(tjekLinks, 30000);
+  await opdaterLeaderboards(); setInterval(opdaterLeaderboards, 5 * 60000);
+  await opdaterServerStatus(); setInterval(opdaterServerStatus, 2 * 60000);
+  await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
+  await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
+  postDevlog(); setInterval(postDevlog, 60000);
+  setInterval(postDiscordAendringer, 30 * 60000);
   if (!botNoegle()) console.log('BOT_NOEGLE mangler i .env - ansøgninger og straffe postes, så snart den er tilføjet.');
 });
 
@@ -555,6 +798,15 @@ client.on('interactionCreate', async i => {
       return i.respond(navne.map(n => ({ name: n, value: n }))).catch(() => {});
     }
 
+    // ---------- DEVLOG: MODAL ----------
+    if (i.isModalSubmit() && i.customId === 'devlog_modal') {
+      const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
+      if (!kanal) return i.reply({ content: '#dev-log findes ikke.', flags: MessageFlags.Ephemeral });
+      const punkter = i.fields.getTextInputValue('punkter').split('\n').map(x => x.trim()).filter(Boolean);
+      await kanal.send({ embeds: [devlogEmbed(i.fields.getTextInputValue('titel'), punkter).setFooter({ text: `Skrevet af ${i.user.username}` })] });
+      return i.reply({ content: `Dev-loggen er sendt i ${kanal}. 🛠️`, flags: MessageFlags.Ephemeral });
+    }
+
     // ---------- FORSLAG: MODAL ----------
     if (i.isModalSubmit() && i.customId === 'forslag_modal') {
       const ign = i.fields.getTextInputValue('ign').trim();
@@ -598,6 +850,7 @@ client.on('interactionCreate', async i => {
         const l = linkAf(i.user.id);
         if (!l) return i.reply({ content: 'Du er ikke forbundet. Brug `/link` for at forbinde.', flags: MessageFlags.Ephemeral });
         delete linkData.links[i.user.id]; gemLink();
+        postPrivat('link', { type: 'fjern', u: l.u }).catch(() => {});
         await synkRoller(i.guild, i.user.id, []);
         return i.reply({ content: `Forbindelsen til **${l.n}** er fjernet, og dine rank-roller er taget af.`, flags: MessageFlags.Ephemeral });
       }
@@ -645,6 +898,11 @@ client.on('interactionCreate', async i => {
       if (i.commandName === 'ip') {
         return i.reply({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🌐 Serverens IP').setDescription(`\`${SERVER_IP}\`\n\n⚠️ ${IP_NOTE}`)] });
       }
+      if (i.commandName === 'devlog') {
+        return i.showModal(new ModalBuilder().setCustomId('devlog_modal').setTitle('Ny dev-log').addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('titel').setLabel('Overskrift').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('punkter').setLabel('Hvad er nyt? (én ting pr. linje)').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(3000))));
+      }
       if (i.commandName === 'say') {
         await i.channel.send({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle(i.options.getString('titel')).setDescription(i.options.getString('tekst').replace(/\\n/g, '\n'))] });
         return i.reply({ content: 'Sendt.', flags: MessageFlags.Ephemeral });
@@ -654,11 +912,12 @@ client.on('interactionCreate', async i => {
         const min = i.options.getInteger('minutter');
         const slut = Math.floor((Date.now() + min * 60000) / 1000);
         const kanal = i.guild.channels.cache.get(config.kanaler.giveaways) || i.channel;
+        const g = { kanal: kanal.id, praemie, slut, af: i.user.id, vindere: i.options.getInteger('vindere') || 1, deltagere: [] };
         const msg = await kanal.send({
-          embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🎁 GIVEAWAY').setDescription(`**${praemie}**\n\nSlutter <t:${slut}:R>\nStartet af ${i.user}\nDeltagere: **0**`)],
+          embeds: [gwEmbed(g, 0)],
           components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('gw').setLabel('Deltag').setEmoji('🎉').setStyle(ButtonStyle.Primary))],
         });
-        gwData[msg.id] = { kanal: kanal.id, praemie, slut, deltagere: [] };
+        gwData[msg.id] = g;
         planlaegGiveaway(msg.id); gemGw();
         return i.reply({ content: `Giveaway startet i ${kanal}.`, flags: MessageFlags.Ephemeral });
       }
@@ -673,9 +932,19 @@ client.on('interactionCreate', async i => {
       if (s.has(i.user.id)) { s.delete(i.user.id); await i.reply({ content: 'Du er meldt fra.', flags: MessageFlags.Ephemeral }); }
       else { s.add(i.user.id); await i.reply({ content: 'Du er med! 🎉', flags: MessageFlags.Ephemeral }); }
       gemGw();
-      const emb = EmbedBuilder.from(i.message.embeds[0]);
-      emb.setDescription(i.message.embeds[0].description.replace(/Deltagere: \*\*\d+\*\*/, `Deltagere: **${s.size}**`));
-      return i.message.edit({ embeds: [emb] }).catch(() => {});
+      const g = gwData[i.message.id];
+      return i.message.edit({ embeds: [g ? gwEmbed(g, s.size) : i.message.embeds[0]] }).catch(() => {});
+    }
+    if (i.customId === 'gw_reroll') {
+      if (!erStaff(i.member)) return i.reply({ content: 'Kun staff kan trække en ny vinder.', flags: MessageFlags.Ephemeral });
+      const g = gwSlut[i.message.id];
+      if (!g) return i.reply({ content: 'Jeg kan ikke finde deltagerne til denne giveaway længere.', flags: MessageFlags.Ephemeral });
+      const tilbage = g.deltagere.filter(d => !g.vundet.includes(d));
+      if (!tilbage.length) return i.reply({ content: 'Der er ingen flere deltagere at trække imellem.', flags: MessageFlags.Ephemeral });
+      const ny = traek(tilbage, 1);
+      g.vundet.push(...ny); gemGwSlut();
+      await i.reply({ content: `Ny vinder trukket: <@${ny[0]}>`, flags: MessageFlags.Ephemeral });
+      return udraabVindere(i.channel, i.message.id, g, ny, true);
     }
 
     // ---------- VERIFICERING ----------

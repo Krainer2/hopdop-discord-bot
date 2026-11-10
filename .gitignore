@@ -8,6 +8,7 @@ node_modules/
 config.json
 forslag.json
 giveaways.json
+giveaways-slut.json
 uge.json
 web-set.json
 link.json
@@ -16,3 +17,6 @@ link.json
 *.log
 .DS_Store
 Thumbs.db
+giveaways-slut.json
+status.json
+devlog-postet.json

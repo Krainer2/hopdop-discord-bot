@@ -1,0 +1,17 @@
+[
+  {
+    "id": "2026-11-10-bot",
+    "kategori": "Discord-bot",
+    "titel": "HOPDOP Bot har fået en masse nyt!",
+    "punkter": [
+      "📊 `/stats <navn>` viser dine stats ligesom ingame: kills, K/D, placering, team og duels",
+      "🏆 `/top` viser top 10 i kills, K/D, daily, duels, KOTH og meget mere",
+      "🟢 `/online` viser hvem der er på serveren lige nu",
+      "🔗 `/link` forbinder din Minecraft med Discord. Du får automatisk din rank-rolle og en belønning ingame!",
+      "📺 Nye kanaler, der opdaterer sig selv: #leaderboards og #server-status",
+      "🎁 Giveaways: vinderen bliver tagget, får en DM og kan være flere vindere",
+      "🏅 Hver søndag kl. 20 poster botten ugens top 3 i #events",
+      "📖 Se alle kommandoer i #bot-guide"
+    ]
+  }
+]
