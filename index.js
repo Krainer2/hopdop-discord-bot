@@ -482,7 +482,7 @@ async function postDevlog() {
     let postet = []; try { postet = JSON.parse(fs.readFileSync(DEVLOG_POSTET, 'utf8')); } catch { /* første gang */ }
     for (const d of liste) {
       if (!d.id || postet.includes(d.id)) continue;
-      await kanal.send({ content: ping(kanal.guild, 'Dev-Log') || undefined, embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
+      await sendPing(kanal, 'Dev-Log', { embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
       postet.push(d.id);
     }
     fs.writeFileSync(DEVLOG_POSTET, JSON.stringify(postet.slice(-500)));
@@ -708,15 +708,16 @@ const harAdgang = (m, k) => erEjer(m) || (adgang[k] || []).some(navn => m.roles.
 
 // ---------- Send til serveren og vent på svar ----------
 const ventSvar = new Map(); // id -> { i, tekst, timer }
-async function tilServer(i, kommando, beskrivelse) {
+async function tilServer(i, kommando, beskrivelse, udenSvar = false) {
   await i.deferReply({ flags: MessageFlags.Ephemeral });
   let id;
   try { ({ id } = await postPrivat('bro', { type: 'kommando', kommando, af: i.user.username })); }
   catch (e) { return i.editReply(`❌ Kunne ikke sende til serveren: ${e.message}`); }
+  if (udenSvar) { logBro(i.user, kommando); return i.editReply(`✅ ${beskrivelse}: sendt. Den kommer ingame inden for ca. 5 sekunder.`); }
   await i.editReply(`⏳ ${beskrivelse} ... sendt til serveren, venter på svar.`);
   const timer = setTimeout(() => {
     ventSvar.delete(id);
-    i.editReply(`⚠️ ${beskrivelse}: sendt, men serveren har ikke svaret inden for 40 sek. Kører DiscordBro.sk?`).catch(() => {});
+    i.editReply(`⚠️ ${beskrivelse}: sendt, men serveren har ikke svaret inden for 40 sek. Kører DiscordBro.sk? (Tjek `/discordbro` ingame.)`).catch(() => {});
   }, 40000);
   ventSvar.set(id, { i, beskrivelse, timer });
   logBro(i.user, kommando);
@@ -748,15 +749,22 @@ async function opdaterLiveChatAdgang(guild) {
   await k.permissionOverwrites.set(ow).catch(e => console.error('#live-chat adgang:', e.message));
 }
 const klok = t => new Date(t).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit' });
+const RANK_IKON = { Ejer: '👑', Admin: '🔴', Mod: '🟣', 'Hjælper': '🟢', Builder: '🔷', Legende: '💎', Mester: '💠', Diamant: '💎', Guld: '🟡', 'Sølv': '⚪', Bronze: '🟤' };
 function chatLinje(c) {
   const [type, a, ...rest] = c.tekst.split('|');
   const b = rest.join('|');
   const tid = `\`${klok(c.t)}\``;
-  if (type === 'C') return `${tid} **${escapeMarkdown(a)}**: ${escapeMarkdown(b)}`;
-  if (type === 'J') return `${tid} ➡️ **${escapeMarkdown(a)}** joinede`;
-  if (type === 'Q') return `${tid} ⬅️ **${escapeMarkdown(a)}** forlod serveren`;
-  if (type === 'D') return `${tid} 💀 ${escapeMarkdown(a)}`;
-  return `${tid} ${escapeMarkdown(c.tekst)}`;
+  const e = escapeMarkdown;
+  if (type === 'C') return `${tid} 💬 **${e(a)}** » ${e(b)}`;
+  if (type === 'J') return `${tid} 🟢 **${e(a)}** joinede serveren`;
+  if (type === 'Q') return `${tid} 🔴 **${e(a)}** forlod serveren`;
+  if (type === 'D') return `${tid} 💀 ${e(a)}`;
+  if (type === 'K') { // K|rank|spiller|/kommando
+    const [spiller, ...k] = rest;
+    const rank = a && a !== '*' ? `${RANK_IKON[a] || '▫️'} ` : '';
+    return `${tid} ⌨️ ${rank}**${e(spiller || '?')}** brugte \`${k.join('|').replace(/`/g, "'").slice(0, 150)}\``;
+  }
+  return `${tid} ${e(c.tekst)}`;
 }
 async function tjekBro() {
   if (!botNoegle()) return;
@@ -795,11 +803,61 @@ const MC_NAVN = /^[A-Za-z0-9_]{1,16}$/;
 
 // ---------- BOT-LOGO ----------
 async function saetBotLogo() {
-  const V = 1;
+  const V = 2; // 2 = nyt logo + banner
   config.grafik = config.grafik || {};
-  if (config.grafik.botlogo === V || !fs.existsSync('assets/bot-logo.png')) return;
-  await client.user.setAvatar('assets/bot-logo.png').then(() => { config.grafik.botlogo = V; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Bot-logo er sat.'); })
-    .catch(e => console.error('Bot-logo:', e.message));
+  if (config.grafik.botlogo === V) return;
+  let ok = true;
+  if (fs.existsSync('assets/bot-logo.png')) await client.user.setAvatar('assets/bot-logo.png').catch(e => { ok = false; console.error('Bot-logo:', e.message); });
+  if (fs.existsSync('assets/bot-banner.png') && typeof client.user.setBanner === 'function') await client.user.setBanner('assets/bot-banner.png').catch(e => { ok = false; console.error('Bot-banner:', e.message); });
+  if (ok) { config.grafik.botlogo = V; fs.writeFileSync('config.json', JSON.stringify(config, null, 2)); console.log('Bot-logo og banner er sat.'); }
+}
+
+// ================= RETTIGHEDER, BOT-ROLLE OG PANELER =================
+const ANSOG_LINKS = [['Staff', 'staff', '🛡️'], ['Bygger', 'bygger', '🔨'], ['Unban', 'unban', '🔓']];
+async function opdaterPanel(kanal, find, besked) {
+  const gamle = await kanal.messages.fetch({ limit: 30 }).catch(() => null);
+  const m = gamle?.find(x => x.author.id === client.user.id && x.embeds[0]?.title === find);
+  if (m) return m.edit(besked).catch(e => console.error('Panel:', e.message));
+  return kanal.send(besked).catch(e => console.error('Panel:', e.message));
+}
+async function opsaetRettigheder(guild) {
+  await guild.roles.fetch();
+  const spiller = guild.roles.cache.get(config.roller['Spiller']);
+  // Spiller: egen sektion i medlemslisten, og ingen @everyone/@here/rolle-pings (kun enkelte spillere)
+  if (spiller) {
+    const p = spiller.permissions.remove(P.MentionEveryone);
+    await spiller.edit({ hoist: true, permissions: p }).catch(e => console.error('Spiller-rolle:', e.message));
+  }
+  // Botten: egen rolle, så den ikke ligger under "Online"
+  const botRolle = guild.members.me.roles.botRole;
+  if (botRolle) await botRolle.edit({ name: 'HOPDOP Bot', hoist: true, color: 0x4ade80 }).catch(e => console.error('Bot-rolle:', e.message));
+  // Ingen almindelige roller kan pinges af spillere
+  for (const r of guild.roles.cache.values()) if (r.mentionable && !r.managed) await r.setMentionable(false).catch(() => {});
+  // #ansøgninger: kun læsning for spillere + knapper til hjemmesiden
+  const ansog = config.kanaler.ansog && await guild.channels.fetch(config.kanaler.ansog).catch(() => null);
+  if (ansog) {
+    await ansog.permissionOverwrites.edit(guild.roles.everyone.id, { SendMessages: false, AddReactions: false, CreatePublicThreads: false, CreatePrivateThreads: false, SendMessagesInThreads: false }).catch(() => {});
+    if (spiller) await ansog.permissionOverwrites.edit(spiller.id, { SendMessages: false, AddReactions: false, CreatePublicThreads: false, CreatePrivateThreads: false, SendMessagesInThreads: false }).catch(() => {});
+    await opdaterPanel(ansog, '📝 Ansøgninger', {
+      embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('📝 Ansøgninger')
+        .setDescription('Vil du være en del af holdet? Ansøg på vores hjemmeside – tryk på en knap herunder.\nDu hører fra staff, når din ansøgning er læst.')
+        .setFooter({ text: 'HOPDOP · hopdop.pages.dev' })],
+      components: [new ActionRowBuilder().addComponents(ANSOG_LINKS.map(([n, t, e]) => new ButtonBuilder().setLabel(n).setEmoji(e).setStyle(ButtonStyle.Link).setURL(`${WEB}/ansog.html?type=${t}`)))],
+    });
+  }
+  // Ticket-panel med fejlrapport
+  const tk = config.kanaler.ticket && await guild.channels.fetch(config.kanaler.ticket).catch(() => null);
+  if (tk) await opdaterPanel(tk, '🎫 Support', {
+    embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🎫 Support')
+      .setDescription('Har du brug for hjælp? Vælg en kategori nedenfor, så opretter jeg en privat kanal til dig og staff.\n\n🐞 **Fundet en fejl?** Tryk på *Fejlrapport* og fortæl, hvad der gik galt.')],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ticket:support').setLabel('Support').setEmoji('🛟').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ticket:koeb').setLabel('Køb / Ranks').setEmoji('💳').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ticket:ansoeg').setLabel('Ansøgning').setEmoji('📝').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('ticket:fejl').setLabel('Anmeld spiller').setEmoji('🚨').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('ticket:bug').setLabel('Fejlrapport').setEmoji('🐞').setStyle(ButtonStyle.Secondary))],
+  });
+  console.log('Rettigheder, bot-rolle og paneler er opdateret.');
 }
 
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
@@ -823,7 +881,7 @@ async function synkRollerFil(tving = false) {
     const raekke = [];
     for (const g of rollerData.grupper) {
       raekke.push(await findEllerLav(skilleNavn(g.skille), { color: 0x2b2d31, hoist: false }));
-      for (const r of g.roller) raekke.push(await findEllerLav(rolleNavn(r), { mentionable: !!g.vaelg }));
+      for (const r of g.roller) raekke.push(await findEllerLav(rolleNavn(r), { mentionable: false }));
     }
     // 2) Sæt rækkefølgen lige under botten
     const top = guild.members.me.roles.highest.position;
@@ -904,6 +962,13 @@ async function rolleReaktion(reaktion, bruger, tilfoej) {
 client.on('messageReactionAdd', (r, u) => rolleReaktion(r, u, true));
 client.on('messageReactionRemove', (r, u) => rolleReaktion(r, u, false));
 // Ping-rolle til automatiske opslag (fx "Giveaway"), hvis den findes
+// Notifikationsroller kan ikke pinges af spillere: botten åbner for pinget lige mens beskeden sendes
+async function sendPing(kanal, navn, payload) {
+  const r = kanal.guild.roles.cache.find(x => x.name === navn);
+  if (r) await r.setMentionable(true).catch(() => {});
+  try { return await kanal.send({ ...payload, content: r ? `<@&${r.id}>` : undefined }); }
+  finally { if (r) r.setMentionable(false).catch(() => {}); }
+}
 const ping = (guild, navn) => { const r = guild?.roles.cache.find(x => x.name === navn); return r ? `<@&${r.id}>` : ''; };
 
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
@@ -1034,7 +1099,7 @@ async function tjekUgeTop() {
         { name: '🥊 Flest duel-sejre', inline: true, value: top3(duel.spillere || [], x => x.us, v => `${tal(v)} ${v === 1 ? 'sejr' : 'sejre'}`) },
         { name: '📅 Længste daily-streak', inline: true, value: top3(stats.spillere, x => x.ds, v => `${tal(v)} dage`) })
       .setFooter({ text: 'Ny uge starter nu · Se alle lister med /top' });
-    await kanal.send({ content: ping(kanal.guild, 'Events') || undefined, embeds: [emb] });
+    await sendPing(kanal, 'Events', { embeds: [emb] });
     fs.writeFileSync(UGE_FIL, JSON.stringify({ start: ugeKey(new Date(nu.getTime() + 86400000)), kills: Object.fromEntries(stats.spillere.map(x => [x.u, x.k])), postet: iDag }));
     console.log('Ugens top er postet i #events.');
   } catch (e) { console.error('Ugens top fejlede:', e.message); }
@@ -1102,7 +1167,7 @@ async function opdaterGuide(guild) {
 const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online', 'link'];
 
 const erStaff = m => m.roles.cache.some(r => STAFF.includes(r.id));
-const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'] };
+const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'], bug: ['Fejlrapport', '🐞'] };
 
 const kommandoer = [
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
@@ -1159,6 +1224,7 @@ const kommandoer = [
     .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('sig').setDescription('Skriv i chatten ingame som [Discord] dit navn')
     .addStringOption(o => o.setName('besked').setDescription('Beskeden').setRequired(true).setMaxLength(200))
+    .addBooleanOption(o => o.setName('usynlig').setDescription('Ja = uden [Discord] og dit navn (ser ud som en systembesked)'))
     .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('konsol').setDescription('Kør en konsol-kommando på Minecraft-serveren (pas på!)')
     .addStringOption(o => o.setName('kommando').setDescription('Uden /, fx: say Hej alle').setRequired(true).setMaxLength(250))
@@ -1198,6 +1264,7 @@ client.once('clientReady', async () => {
   tjekBro(); setInterval(tjekBro, 3000);
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
   await synkRollerFil(true); setInterval(synkRollerFil, 60000);
+  await opsaetRettigheder(guild).catch(e => console.error('Rettigheder:', e.message));
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
   postDevlog(); setInterval(postDevlog, 60000);
@@ -1370,7 +1437,10 @@ client.on('interactionCreate', async i => {
           }
           case 'beacondrop': return tilServer(i, `bd ${i.options.getString('handling')}`, `Beacon Drop: ${i.options.getString('handling')}`);
           case 'broadcast': return tilServer(i, `bc ${ren(i.options.getString('besked'))}`, 'Broadcast');
-          case 'sig': return tilServer(i, `dc:sig ${dnavn} ${ren(i.options.getString('besked'))}`, 'Besked ingame');
+          case 'sig': {
+            const tekst = ren(i.options.getString('besked'));
+            return tilServer(i, i.options.getBoolean('usynlig') ? `dc:sigstille ${tekst}` : `dc:sig ${dnavn} ${tekst}`, 'Besked ingame', true);
+          }
           case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
           default: return i.reply({ content: 'Ukendt kommando.', flags: MessageFlags.Ephemeral });
         }
@@ -1390,8 +1460,7 @@ client.on('interactionCreate', async i => {
         const slut = Math.floor((Date.now() + min * 60000) / 1000);
         const kanal = i.guild.channels.cache.get(config.kanaler.giveaways) || i.channel;
         const g = { kanal: kanal.id, praemie, slut, af: i.user.id, vindere: i.options.getInteger('vindere') || 1, deltagere: [] };
-        const msg = await kanal.send({
-          content: ping(i.guild, 'Giveaway') || undefined,
+        const msg = await sendPing(kanal, 'Giveaway', {
           embeds: [gwEmbed(g, 0)],
           components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('gw').setLabel('Deltag').setEmoji('🎉').setStyle(ButtonStyle.Primary))],
         });
@@ -1459,7 +1528,9 @@ client.on('interactionCreate', async i => {
       await kanal.send({
         content: `${i.user} ${STAFF.slice(0, 4).map(id => `<@&${id}>`).join(' ')}`,
         embeds: [new EmbedBuilder().setColor(FARVE).setTitle(`${emoji} ${navn}`)
-          .setDescription('Beskriv dit problem så detaljeret som muligt, så hjælper en fra staff dig snarest.\nNår I er færdige, tryk på knappen for at lukke ticketten.')],
+          .setDescription((type === 'bug'
+            ? 'Beskriv fejlen:\n**1.** Hvad skete der?\n**2.** Hvad forventede du?\n**3.** Hvordan kan vi gentage den? (gerne med billede/video)\n\n'
+            : 'Beskriv dit problem så detaljeret som muligt, så hjælper en fra staff dig snarest.\n') + 'Når I er færdige, tryk på knappen for at lukke ticketten.')],
         components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))],
       });
       return i.reply({ content: `Din ticket er oprettet: ${kanal}`, flags: MessageFlags.Ephemeral });

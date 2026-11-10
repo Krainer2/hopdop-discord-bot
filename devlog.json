@@ -24,5 +24,17 @@
       "🖼️ Discorden har fået det nye HOPDOP-logo som ikon",
       "👋 Nye medlemmer bliver budt velkommen med HOPDOP-banneret"
     ]
+  },
+  {
+    "id": "2026-11-10-orden",
+    "kategori": "Discord",
+    "titel": "Ryddet op på Discorden",
+    "punkter": [
+      "📝 **#ansøgninger** er nu kun til læsning – brug knapperne og ansøg på hjemmesiden",
+      "🐞 Ny **Fejlrapport**-knap i #opret-ticket",
+      "🚫 Spillere kan ikke længere bruge @everyone, @here eller rolle-pings",
+      "👥 Spillere og botten har fået deres egne sektioner i medlemslisten",
+      "💬 Pænere live-chat med kommandoer vist for sig"
+    ]
   }
 ]
