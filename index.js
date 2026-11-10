@@ -1216,9 +1216,16 @@ async function opsaetRettigheder(guild) {
     const p = spiller.permissions.remove(P.MentionEveryone);
     await spiller.edit({ hoist: true, permissions: p }).catch(e => console.error('Spiller-rolle:', e.message));
   }
-  // Botten: egen rolle, så den ikke ligger under "Online"
+  // Botten: rollen "Bots" nederst i medlemslisten (under alle andre roller, ikke under "Online")
   const botRolle = guild.members.me.roles.botRole;
-  if (botRolle) await botRolle.edit({ name: 'HOPDOP Bot', hoist: true, color: 0x4ade80 }).catch(e => console.error('Bot-rolle:', e.message));
+  if (botRolle && botRolle.hoist) await botRolle.edit({ hoist: false }).catch(e => console.error('Bot-rolle:', e.message));
+  let botsRolle = guild.roles.cache.find(r => r.name === 'Bots' && !r.managed);
+  if (!botsRolle) botsRolle = await guild.roles.create({ name: 'Bots', color: 0x4ade80, hoist: true, mentionable: false, permissions: [], reason: 'Bots-rolle' }).catch(e => { console.error('Bots-rolle:', e.message); return null; });
+  if (botsRolle) {
+    if (!botsRolle.hoist) await botsRolle.edit({ hoist: true }).catch(() => {});
+    if (botsRolle.position !== 1) await botsRolle.setPosition(1).catch(e => console.error('Bots-position:', e.message));
+    if (!guild.members.me.roles.cache.has(botsRolle.id)) await guild.members.me.roles.add(botsRolle).catch(e => console.error('Bots-tildeling:', e.message));
+  }
   await laasPings(guild);
   await laasLaeseKanaler(guild);
   await saetSlowmode(guild);
