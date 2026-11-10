@@ -1179,13 +1179,19 @@ const goonsBotGiver = new Set();
 // ================= EGNE EMOJIS FRA MAPPEN "emojis" =================
 // Læg PNG/JPG/GIF-filer (max 256 KB) i mappen "emojis" ved siden af index.js. Filnavnet bliver emojiens navn.
 const EMOJI_MAPPE = 'emojis';
+// Forståelige navne ud fra, hvad billedet viser (nøgle = filnavn uden endelse og tal-præfiks)
+const EMOJI_NAVNE = { crying: 'froe_graeder', pepehammer: 'froe_hammer', noo: 'noo_graeder', sad: 'froe_trist', pepe: 'froe_haender_op', pepebless: 'froe_beder',
+  pepestare: 'froe_stirrer', pepeplusone: 'froe_plus_en', thumbsupcat: 'kat_tommel_op', pepedepressed: 'froe_deprimeret', pepegoogoo: 'froe_baby', pepehappy: 'froe_glad' };
+const EMOJI_SPRING = ['pepehang']; // viser selvskade (galge) - tilføjes aldrig
 async function opsaetEmojiMappe(guild) {
   if (!fs.existsSync(EMOJI_MAPPE)) { fs.mkdirSync(EMOJI_MAPPE); fs.writeFileSync(`${EMOJI_MAPPE}/LÆS-MIG.txt`, 'Læg PNG-, JPG- eller GIF-filer her (max 256 KB pr. fil).\r\nFilnavnet bliver emojiens navn, fx sejt_sværd.png -> :sejt_svaerd:\r\nSå skriver du /emojis på Discord, eller genstarter botten.\r\n'); }
   await guild.emojis.fetch();
   const resultat = { nye: [], sprunget: [], fejl: [] };
   for (const fil of fs.readdirSync(EMOJI_MAPPE)) {
     if (!/\.(png|jpe?g|gif)$/i.test(fil)) continue;
-    const navn = fil.replace(/\.[^.]+$/, '').replace(/^\d+[-_]/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').replace(/ø/gi, 'oe').replace(/å/gi, 'aa').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
+    const stamme = fil.replace(/\.[^.]+$/, '').replace(/^\d+[-_]/, '').toLowerCase();
+    if (EMOJI_SPRING.includes(stamme)) { resultat.fejl.push(`${fil} (springet over: viser selvskade)`); continue; }
+    const navn = EMOJI_NAVNE[stamme] || stamme.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').replace(/ø/gi, 'oe').replace(/å/gi, 'aa').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 32);
     if (navn.length < 2) { resultat.fejl.push(`${fil} (navnet er for kort)`); continue; }
     if (guild.emojis.cache.some(e => e.name === navn)) { resultat.sprunget.push(navn); continue; }
     const data = fs.readFileSync(`${EMOJI_MAPPE}/${fil}`);
