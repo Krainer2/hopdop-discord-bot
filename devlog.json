@@ -13,5 +13,16 @@
       "🏅 Hver søndag kl. 20 poster botten ugens top 3 i #events",
       "📖 Se alle kommandoer i #bot-guide"
     ]
+  },
+  {
+    "id": "2026-11-10-layout",
+    "kategori": "Discord",
+    "titel": "Ny opsætning af Discorden",
+    "punkter": [
+      "📊 Ny **STATS**-kategori øverst med antal medlemmer, hvor mange der er online ingame og serverens IP",
+      "🔗 Ny kanal **#link**: tryk på knappen, og forbind din Minecraft-konto på få sekunder",
+      "🖼️ Discorden har fået det nye HOPDOP-logo som ikon",
+      "👋 Nye medlemmer bliver budt velkommen med HOPDOP-banneret"
+    ]
   }
 ]

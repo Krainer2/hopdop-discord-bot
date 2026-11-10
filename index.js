@@ -501,6 +501,137 @@ client.on('channelDelete', c => { if (erOffentlig(c)) devlogDiscord(`🗑️ Kan
 client.on('roleCreate', r => { if (!r.managed) devlogDiscord(`🏷️ Ny rolle: <@&${r.id}>`); });
 client.on('roleDelete', r => { if (!r.managed) devlogDiscord(`🗑️ Rollen **${r.name}** er fjernet`); });
 
+// Svar til /link og knappen i #link (kun brugeren selv kan se det)
+function linkSvar(discordId) {
+  const l = linkAf(discordId);
+  if (l) return { content: `✅ Du er allerede forbundet med **${l.n}**. Brug knappen **Fjern forbindelse** eller \`/unlink\` for at fjerne det.`, flags: MessageFlags.Ephemeral };
+  for (const [k, v] of Object.entries(linkData.ventende)) if (v.d === discordId) delete linkData.ventende[k];
+  const kode = nyLinkKode();
+  linkData.ventende[kode] = { d: discordId, t: Date.now() }; gemLink();
+  return { flags: MessageFlags.Ephemeral, embeds: [new EmbedBuilder().setColor(LILLA)
+    .setAuthor({ name: 'HOPDOP · Forbind din konto' })
+    .setTitle('🔗 Din kode: ' + kode)
+    .setDescription([
+      `**1.** Join serveren: \`${SERVER_IP}\``,
+      `**2.** Skriv i chatten: \`/discord ${kode}\``,
+      '**3.** Inden for et minut får du din rank-rolle her, en besked fra mig og en belønning ingame.',
+      '', '⏳ Koden virker i 30 minutter. Del den ikke med andre.',
+    ].join('\n'))] };
+}
+async function unlinkSvar(guild, discordId) {
+  const l = linkAf(discordId);
+  if (!l) return { content: 'Du er ikke forbundet. Tryk på **Forbind min konto** eller brug `/link`.', flags: MessageFlags.Ephemeral };
+  delete linkData.links[discordId]; gemLink();
+  postPrivat('link', { type: 'fjern', u: l.u }).catch(() => {});
+  await synkRoller(guild, discordId, []);
+  return { content: `Forbindelsen til **${l.n}** er fjernet, og dine rank-roller er taget af.`, flags: MessageFlags.Ephemeral };
+}
+
+// ---------- KATEGORIER ØVERST: 📊 STATS og 🔗 LINK DIN KONTO ----------
+async function sikrKategori(guild, noegle, navn, position) {
+  let k = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+  if (!k) {
+    k = await guild.channels.create({ name: navn, type: ChannelType.GuildCategory });
+    config.kanaler[noegle] = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log(`Kategori ${navn} er oprettet.`);
+  }
+  if (k.position !== position) await k.setPosition(position).catch(() => {});
+  return k;
+}
+// Låste voice-kanaler, som kun viser tal (ingen kan joine dem)
+async function sikrStatKanal(guild, noegle, navn, parent) {
+  let k = config.kanaler[noegle] && await guild.channels.fetch(config.kanaler[noegle]).catch(() => null);
+  if (k) return k;
+  k = await guild.channels.create({ name: navn, type: ChannelType.GuildVoice, parent: parent.id,
+    permissionOverwrites: [
+      { id: guild.roles.everyone.id, allow: [P.ViewChannel], deny: [P.Connect] },
+      { id: client.user.id, allow: [P.ViewChannel, P.ManageChannels, P.Connect] },
+    ] });
+  config.kanaler[noegle] = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  return k;
+}
+let statNavne = {};
+async function opdaterStatsKategori() {
+  try {
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    const kat = await sikrKategori(guild, 'statskat', '📊 STATS', 0);
+    let online = null; try { online = ((await hentWeb('stats')).online || []).length; } catch { /* hjemmesiden svarer ikke */ }
+    const oensket = {
+      statmedlemmer: `👥┃Medlemmer: ${guild.memberCount}`,
+      statonline: `🟢┃Online ingame: ${online ?? '?'}`,
+      statip: `🌐┃IP: ${SERVER_IP}`,
+    };
+    for (const [noegle, navn] of Object.entries(oensket)) {
+      const k = await sikrStatKanal(guild, noegle, navn, kat);
+      // Discord tillader kun 2 navneskift pr. 10 min pr. kanal - derfor kun ved ændring
+      if (k.name !== navn && statNavne[noegle] !== navn) { statNavne[noegle] = navn; await k.setName(navn).catch(() => {}); }
+    }
+  } catch (e) { console.error('Stats-kategori:', e.message); }
+}
+
+async function opdaterLinkKanal(guild) {
+  const kat = await sikrKategori(guild, 'linkkat', '🔗 LINK DIN KONTO', 1);
+  let kanal = config.kanaler.link && await guild.channels.fetch(config.kanaler.link).catch(() => null);
+  if (!kanal) {
+    kanal = await guild.channels.create({ name: '📌┃link', type: ChannelType.GuildText, parent: kat.id,
+      topic: 'Forbind din Minecraft-konto med Discord og få din rank-rolle',
+      permissionOverwrites: [
+        { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
+        { id: config.roller['Spiller'], allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions] },
+        ...STAFF.map(id => ({ id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] })),
+      ] });
+    config.kanaler.link = kanal.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('#link er oprettet.');
+  }
+  const emb = new EmbedBuilder().setColor(LILLA).setAuthor({ name: 'HOPDOP · Link din konto' })
+    .setTitle('🔗 Forbind Minecraft med Discord')
+    .setDescription([
+      'Forbind din Minecraft-konto med Discord og få:',
+      '', '🏷️ **Din rank-rolle** automatisk (Legende, Mester, Diamant, Guld osv.)',
+      '💰 **En belønning ingame** første gang du forbinder',
+      '📊 **`/stats` uden navn** viser dine egne stats',
+      '', '**Sådan gør du:**',
+      '**1.** Tryk på **🔗 Forbind min konto** herunder. Du får en kode, som kun du kan se.',
+      `**2.** Join \`${SERVER_IP}\`, og skriv \`/discord <kode>\` i chatten.`,
+      '**3.** Færdig! Du får en besked fra mig inden for et minut.',
+    ].join('\n'))
+    .setThumbnail('attachment://ikon.png')
+    .setFooter({ text: 'Din rolle følger med, hvis din rank ændres ingame' });
+  const knapper = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('link_start').setLabel('Forbind min konto').setEmoji('🔗').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('link_status').setLabel('Er jeg forbundet?').setEmoji('❔').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('link_fjern').setLabel('Fjern forbindelse').setEmoji('✖️').setStyle(ButtonStyle.Danger));
+  const filer = fs.existsSync('assets/ikon.png') ? [new AttachmentBuilder('assets/ikon.png', { name: 'ikon.png' })] : [];
+  if (!filer.length) emb.setThumbnail(null);
+  const gammel = await bottensBesked(kanal);
+  if (gammel) await gammel.edit({ embeds: [emb], components: [knapper], files: filer, attachments: [] });
+  else await kanal.send({ embeds: [emb], components: [knapper], files: filer });
+}
+
+// ---------- SERVER-IKON OG BANNER (fra hjemmesidens logo) ----------
+async function saetGrafik(guild) {
+  config.grafik = config.grafik || {};
+  if (!config.grafik.ikon && fs.existsSync('assets/ikon.png')) {
+    await guild.setIcon('assets/ikon.png', 'HOPDOP-logo').then(() => { config.grafik.ikon = true; console.log('Server-ikon er sat.'); })
+      .catch(e => console.error('Ikon:', e.message));
+  }
+  if (!config.grafik.banner && fs.existsSync('assets/banner.png')) {
+    if (guild.premiumTier >= 2) {
+      await guild.setBanner('assets/banner.png', 'HOPDOP-banner').then(() => { config.grafik.banner = true; console.log('Server-banner er sat.'); devlogDiscord('🖼️ Discorden har fået et nyt HOPDOP-banner'); })
+        .catch(e => console.error('Banner:', e.message));
+    } else if (!config.grafik.bannerSagt) {
+      console.log(`Banner venter: Discord kræver boost-niveau 2 (nu niveau ${guild.premiumTier}). Det sættes automatisk, når I når det.`);
+      config.grafik.bannerSagt = true;
+    }
+  }
+  if (!config.grafik.splash && fs.existsSync('assets/banner.png') && guild.premiumTier >= 1) {
+    await guild.setSplash('assets/banner.png', 'HOPDOP invite-baggrund').then(() => { config.grafik.splash = true; console.log('Invite-baggrund er sat.'); })
+      .catch(e => console.error('Invite-baggrund:', e.message));
+  }
+  fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+}
+client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) saetGrafik(ny); });
+
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
 async function lavUdskrift(kanal) {
   let alle = [], foer;
@@ -664,7 +795,7 @@ async function opdaterGuide(guild) {
         '`/online` · hvem der er på serveren lige nu',
       ].join('\n') },
       { name: '🔗 Forbind Minecraft', value: [
-        '`/link` · få en kode, og skriv `/discord <kode>` ingame',
+        `<#${config.kanaler.link}> · tryk på knappen, eller brug \`/link\`, og skriv \`/discord <kode>\` ingame`,
         'Så får du automatisk din rank-rolle, og `/stats` viser dine egne stats',
         '`/unlink` · fjern forbindelsen',
       ].join('\n') },
@@ -745,6 +876,9 @@ client.once('clientReady', async () => {
   tjekLinks(); setInterval(tjekLinks, 30000);
   await opdaterLeaderboards(); setInterval(opdaterLeaderboards, 5 * 60000);
   await opdaterServerStatus(); setInterval(opdaterServerStatus, 2 * 60000);
+  await opdaterStatsKategori(); setInterval(opdaterStatsKategori, 10 * 60000);
+  await opdaterLinkKanal(guild).catch(e => console.error('#link:', e.message));
+  await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
   postDevlog(); setInterval(postDevlog, 60000);
@@ -785,7 +919,9 @@ client.on('guildMemberAdd', async member => {
   ch.send({ content: `${member}`, embeds: [new EmbedBuilder().setColor(FARVE)
     .setTitle('👋 Velkommen til Hopdop!')
     .setDescription(`Hej ${member}, vi er glade for at have dig her!\nLæs <#${config.kanaler.regler}> og tryk på knappen for at få adgang.\nDu er medlem nr. **${member.guild.memberCount}**.`)
-    .setThumbnail(member.user.displayAvatarURL())] }).catch(() => {});
+    .setThumbnail(member.user.displayAvatarURL())
+    .setImage(fs.existsSync('assets/banner.png') ? 'attachment://banner.png' : null)],
+    files: fs.existsSync('assets/banner.png') ? [new AttachmentBuilder('assets/banner.png', { name: 'banner.png' })] : [] }).catch(() => {});
 });
 
 client.on('interactionCreate', async i => {
@@ -830,30 +966,8 @@ client.on('interactionCreate', async i => {
     if (i.isChatInputCommand()) {
       if (OFFENTLIGE.includes(i.commandName) && i.channelId !== config.kanaler.botcmd && !erStaff(i.member))
         return i.reply({ content: `Brug kommandoer i <#${config.kanaler.botcmd}> 🙂`, flags: MessageFlags.Ephemeral });
-      if (i.commandName === 'link') {
-        const l = linkAf(i.user.id);
-        if (l) return i.reply({ content: `Du er allerede forbundet med **${l.n}**. Brug \`/unlink\` for at fjerne det.`, flags: MessageFlags.Ephemeral });
-        for (const [k, v] of Object.entries(linkData.ventende)) if (v.d === i.user.id) delete linkData.ventende[k];
-        const kode = nyLinkKode();
-        linkData.ventende[kode] = { d: i.user.id, t: Date.now() }; gemLink();
-        return i.reply({ flags: MessageFlags.Ephemeral, embeds: [new EmbedBuilder().setColor(LILLA)
-          .setAuthor({ name: 'HOPDOP · Forbind din konto' })
-          .setTitle('🔗 Din kode: ' + kode)
-          .setDescription([
-            `**1.** Join serveren: \`${SERVER_IP}\``,
-            `**2.** Skriv i chatten: \`/discord ${kode}\``,
-            '**3.** Inden for et minut får du din rank-rolle her og en besked fra mig.',
-            '', '⏳ Koden virker i 30 minutter. Del den ikke med andre.',
-          ].join('\n'))] });
-      }
-      if (i.commandName === 'unlink') {
-        const l = linkAf(i.user.id);
-        if (!l) return i.reply({ content: 'Du er ikke forbundet. Brug `/link` for at forbinde.', flags: MessageFlags.Ephemeral });
-        delete linkData.links[i.user.id]; gemLink();
-        postPrivat('link', { type: 'fjern', u: l.u }).catch(() => {});
-        await synkRoller(i.guild, i.user.id, []);
-        return i.reply({ content: `Forbindelsen til **${l.n}** er fjernet, og dine rank-roller er taget af.`, flags: MessageFlags.Ephemeral });
-      }
+      if (i.commandName === 'link') return i.reply(linkSvar(i.user.id));
+      if (i.commandName === 'unlink') return i.reply(await unlinkSvar(i.guild, i.user.id));
       if (i.commandName === 'top' || i.commandName === 'online') {
         await i.deferReply();
         const emb = await (i.commandName === 'top' ? lavTopEmbed(i.options.getString('liste')) : lavOnlineEmbed())
@@ -934,6 +1048,12 @@ client.on('interactionCreate', async i => {
       gemGw();
       const g = gwData[i.message.id];
       return i.message.edit({ embeds: [g ? gwEmbed(g, s.size) : i.message.embeds[0]] }).catch(() => {});
+    }
+    if (i.customId === 'link_start') return i.reply(linkSvar(i.user.id));
+    if (i.customId === 'link_fjern') return i.reply(await unlinkSvar(i.guild, i.user.id));
+    if (i.customId === 'link_status') {
+      const l = linkAf(i.user.id);
+      return i.reply({ content: l ? `✅ Du er forbundet med **${l.n}**.` : '❌ Du er ikke forbundet endnu. Tryk på **Forbind min konto**.', flags: MessageFlags.Ephemeral });
     }
     if (i.customId === 'gw_reroll') {
       if (!erStaff(i.member)) return i.reply({ content: 'Kun staff kan trække en ny vinder.', flags: MessageFlags.Ephemeral });
