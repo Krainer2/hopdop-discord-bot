@@ -19,7 +19,7 @@ const MESSAGE_CONTENT = (() => {
     return (flags & ((1 << 18) | (1 << 19))) !== 0;
   } catch { return false; }
 })();
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMessageReactions, ...(MESSAGE_CONTENT ? [GatewayIntentBits.MessageContent] : [])],
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildVoiceStates, ...(MESSAGE_CONTENT ? [GatewayIntentBits.MessageContent] : [])],
   partials: [Partials.Message, Partials.Reaction, Partials.User] });
 const giveaways = new Map(); // beskedId -> Set(brugerId)
 // Giveaways gemmes i giveaways.json, så de overlever en genstart
@@ -958,6 +958,80 @@ async function opsaetRettigheder(guild) {
   console.log('Rettigheder, bot-rolle og paneler er opdateret.');
 }
 
+// ================= SUPPORT-RUM OG AKTIVE TICKETS =================
+const SUPPORT_RUM = [1, 2, 3, 4, 5].map(n => `🎧┃Support ${n}`);
+const AKTIVE_KAT = '🎫 AKTIVE TICKETS';
+const AKTIVE_KANAL = '📋┃aktive-tickets';
+async function opsaetSupport(guild) {
+  await guild.channels.fetch(); await guild.roles.fetch();
+  const spiller = guild.roles.cache.get(config.roller['Spiller']);
+  const staffOw = STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.Connect, P.Speak, P.MoveMembers, P.MuteMembers, P.ReadMessageHistory] }));
+  // Support-voice 1-5 i Support-kategorien: spillere kan joine, staff kan flytte og hjælpe
+  const sup = config.kanaler.support;
+  for (const navn of SUPPORT_RUM) {
+    if (guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.parentId === sup && c.name === navn)) continue;
+    await guild.channels.create({ name: navn, type: ChannelType.GuildVoice, parent: sup, permissionOverwrites: [
+      { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
+      ...(spiller ? [{ id: spiller.id, allow: [P.ViewChannel, P.Connect, P.Speak, P.UseVAD] }] : []), ...staffOw] }).catch(e => console.error('Support-rum:', e.message));
+  }
+  // Staff-kategori med liste over aktive tickets
+  let kat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === AKTIVE_KAT);
+  const ow = [{ id: guild.roles.everyone.id, deny: [P.ViewChannel] }, { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.ReadMessageHistory] },
+    ...STAFF.filter(Boolean).map(id => ({ id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] }))];
+  if (!kat) kat = await guild.channels.create({ name: AKTIVE_KAT, type: ChannelType.GuildCategory, permissionOverwrites: ow }).catch(e => { console.error('Aktive tickets:', e.message); return null; });
+  if (!kat) return;
+  let k = guild.channels.cache.find(c => c.parentId === kat.id && c.name === AKTIVE_KANAL.toLowerCase().replace(/ /g, '-')) || guild.channels.cache.find(c => c.parentId === kat.id && c.name === AKTIVE_KANAL);
+  if (!k) k = await guild.channels.create({ name: AKTIVE_KANAL, type: ChannelType.GuildText, parent: kat.id, topic: 'Alle åbne tickets og folk der venter i support-rum. Opdateres automatisk. Kun staff.', permissionOverwrites: ow });
+  config.kanaler.aktive = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  // #fejlrapporter: ingen skriver mere - man opretter en fejlrapport-ticket i stedet
+  const fejl = config.kanaler.fejl && await guild.channels.fetch(config.kanaler.fejl).catch(() => null);
+  if (fejl) {
+    const lås = { SendMessages: false, AddReactions: false, CreatePublicThreads: false, CreatePrivateThreads: false, SendMessagesInThreads: false };
+    await fejl.permissionOverwrites.edit(guild.roles.everyone.id, lås).catch(() => {});
+    if (spiller) await fejl.permissionOverwrites.edit(spiller.id, lås).catch(() => {});
+    await opdaterPanel(fejl, '🐞 Fejlrapporter', {
+      embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🐞 Fejlrapporter')
+        .setDescription('Fundet en fejl? Tryk på knappen, så opretter jeg en privat ticket til dig og staff.\nHer i kanalen kan man ikke skrive.')],
+      components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket:bug').setLabel('Opret fejlrapport').setEmoji('🐞').setStyle(ButtonStyle.Danger))],
+    });
+  }
+  await opdaterAktive(guild);
+}
+let aktiveTid = 0;
+async function opdaterAktive(guild) {
+  try {
+    guild = guild || await client.guilds.fetch(process.env.GUILD_ID);
+    const k = config.kanaler.aktive && await guild.channels.fetch(config.kanaler.aktive).catch(() => null);
+    if (!k) return;
+    await guild.channels.fetch();
+    const tickets = guild.channels.cache.filter(c => c.type === ChannelType.GuildText && String(c.topic || '').startsWith('ticket:')).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    const linjer = [...tickets.values()].slice(0, 25).map(c => `${[...c.name][0]} ${c} · <@${c.topic.replace('ticket:', '')}> · åbnet <t:${Math.floor(c.createdTimestamp / 1000)}:R>`);
+    const rum = SUPPORT_RUM.map(n => {
+      const v = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === n);
+      if (!v) return null;
+      const folk = [...v.members.values()].map(m => m.toString());
+      return `${folk.length ? '🔴' : '🟢'} ${v} · ${folk.length ? folk.join(', ') : 'ledigt'}`;
+    }).filter(Boolean);
+    const venter = rum.some(r => r.startsWith('🔴'));
+    const emb = new EmbedBuilder().setColor(tickets.size || venter ? 0xf59e0b : 0x57f287).setTitle('📋 Aktive tickets')
+      .setDescription(tickets.size ? linjer.join('\n') : '✅ Ingen åbne tickets lige nu.')
+      .addFields({ name: '🎧 Support-rum', value: rum.join('\n') || 'Ingen support-rum fundet.' })
+      .setFooter({ text: `${tickets.size} ${tickets.size === 1 ? 'åben ticket' : 'åbne tickets'} · opdateres automatisk` }).setTimestamp();
+    await opdaterPanel(k, '📋 Aktive tickets', { embeds: [emb] });
+  } catch (e) { console.error('Aktive tickets:', e.message); }
+}
+// Når en spiller joiner et support-rum, får staff en besked (og listen opdateres)
+client.on('voiceStateUpdate', async (gl, ny) => {
+  if (gl.channelId === ny.channelId) return;
+  const rum = ny.channel && SUPPORT_RUM.includes(ny.channel.name) ? ny.channel : null;
+  if (rum && !ny.member.user.bot) {
+    const k = config.kanaler.aktive && await ny.guild.channels.fetch(config.kanaler.aktive).catch(() => null);
+    const besked = await k?.send({ content: `🔔 ${ny.member} venter i ${rum} og har brug for hjælp.`, allowedMentions: { parse: [] } }).catch(() => null);
+    if (besked) setTimeout(() => besked.delete().catch(() => {}), 10 * 60000);
+  }
+  if (Date.now() - aktiveTid > 2000) { aktiveTid = Date.now(); setTimeout(() => opdaterAktive(), 1500); }
+});
+
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
 // Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
 // til alle der har en rolle i gruppen, og giver roller ud fra "tildel" (Discord-brugernavn -> roller).
@@ -1374,6 +1448,7 @@ client.once('clientReady', async () => {
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
   await synkRollerFil(true); setInterval(synkRollerFil, 60000);
   await opsaetRettigheder(guild).catch(e => console.error('Rettigheder:', e.message));
+  await opsaetSupport(guild).catch(e => console.error('Support:', e.message)); setInterval(() => opdaterAktive(), 60000);
   setInterval(() => laasPings(guild).catch(() => {}), 5 * 60000);
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
@@ -1658,6 +1733,7 @@ client.on('interactionCreate', async i => {
             : 'Beskriv dit problem så detaljeret som muligt, så hjælper en fra staff dig snarest.\n') + 'Når I er færdige, tryk på knappen for at lukke ticketten.')],
         components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ticket_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))],
       });
+      opdaterAktive(i.guild);
       return i.reply({ content: `Din ticket er oprettet: ${kanal}`, flags: MessageFlags.Ephemeral });
     }
 
@@ -1670,7 +1746,7 @@ client.on('interactionCreate', async i => {
       if (log) log.send({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('📁 Ticket lukket')
         .setDescription(`Kanal: **${i.channel.name}**\nEjer: <@${ejerId}>\nLukket af: ${i.user}${udskrift ? `\nBeskeder: **${udskrift.antal}**` : '\n⚠️ Udskriften kunne ikke gemmes.'}`)],
         components: udskrift ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Se samtalen').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(udskrift.link))] : [] }).catch(() => {});
-      setTimeout(() => i.channel.delete().catch(() => {}), 5000);
+      setTimeout(() => i.channel.delete().catch(() => {}).then(() => opdaterAktive(i.guild)), 5000);
     }
   } catch (e) {
     console.error('Fejl:', e);
