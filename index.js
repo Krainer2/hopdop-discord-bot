@@ -1023,7 +1023,7 @@ async function opsaetSupport(guild) {
   if (!kat) return;
   let k = guild.channels.cache.find(c => c.parentId === kat.id && c.name === AKTIVE_KANAL.toLowerCase().replace(/ /g, '-')) || guild.channels.cache.find(c => c.parentId === kat.id && c.name === AKTIVE_KANAL);
   if (!k) k = await guild.channels.create({ name: AKTIVE_KANAL, type: ChannelType.GuildText, parent: kat.id, topic: 'Alle åbne tickets og folk der venter i support-rum. Opdateres automatisk. Kun staff.', permissionOverwrites: ow });
-  config.kanaler.aktive = k.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+  config.kanaler.aktive = k.id; config.kanaler.aktivkat = kat.id; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
   // #fejlrapporter: ingen skriver mere - man opretter en fejlrapport-ticket i stedet
   const fejl = config.kanaler.fejl && await guild.channels.fetch(config.kanaler.fejl).catch(() => null);
   if (fejl) {
@@ -1046,6 +1046,8 @@ async function opdaterAktive(guild) {
     if (!k) return;
     await guild.channels.fetch();
     const tickets = guild.channels.cache.filter(c => c.type === ChannelType.GuildText && String(c.topic || '').startsWith('ticket:')).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    // Åbne tickets ligger i kategorien AKTIVE TICKETS (også dem, der blev oprettet før)
+    if (config.kanaler.aktivkat) for (const t of tickets.values()) if (t.parentId !== config.kanaler.aktivkat) await t.setParent(config.kanaler.aktivkat, { lockPermissions: false }).catch(() => {});
     const linjer = [...tickets.values()].slice(0, 25).map(c => `${[...c.name][0]} ${c} · <@${c.topic.replace('ticket:', '')}> · åbnet <t:${Math.floor(c.createdTimestamp / 1000)}:R>`);
     const rum = SUPPORT_RUM.map(n => {
       const v = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name === n);
@@ -1956,7 +1958,7 @@ client.on('interactionCreate', async i => {
       const kanal = await i.guild.channels.create({
         name: `${emoji}┃${i.user.username}`.slice(0, 90),
         type: ChannelType.GuildText,
-        parent: config.kanaler.support,
+        parent: config.kanaler.aktivkat || config.kanaler.support,
         topic: `ticket:${i.user.id}`,
         permissionOverwrites: [
           { id: i.guild.roles.everyone.id, deny: [P.ViewChannel] },
