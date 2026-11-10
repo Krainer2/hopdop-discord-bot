@@ -11,7 +11,7 @@ const STAFF = ['Ejer', 'Admin', 'Mod', 'Hjælper'].map(n => config.roller[n]);
 const SERVER_IP = process.env.SERVER_IP || 'hopdop.superawesome.dk';
 const IP_NOTE = 'Da vi ikke har VIP, kan du ikke connecte direkte til Hopdop. Join med IP\'en ovenfor, og følg instrukserne, der kommer i chatten.';
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
 const giveaways = new Map(); // beskedId -> Set(brugerId)
 // Giveaways gemmes i giveaways.json, så de overlever en genstart
 const GW_FIL = 'giveaways.json';
@@ -611,26 +611,82 @@ async function opdaterLinkKanal(guild) {
 // ---------- SERVER-IKON OG BANNER (fra hjemmesidens logo) ----------
 async function saetGrafik(guild) {
   config.grafik = config.grafik || {};
-  if (!config.grafik.ikon && fs.existsSync('assets/ikon.png')) {
-    await guild.setIcon('assets/ikon.png', 'HOPDOP-logo').then(() => { config.grafik.ikon = true; console.log('Server-ikon er sat.'); })
+  const IKON_VERSION = 2, BANNER_VERSION = 2; // hæv tallet, når billedet skal skiftes igen
+  if (config.grafik.ikon !== IKON_VERSION && fs.existsSync('assets/ikon.png')) {
+    await guild.setIcon('assets/ikon.png', 'HOPDOP-logo').then(() => { config.grafik.ikon = IKON_VERSION; console.log('Server-ikon er sat.'); })
       .catch(e => console.error('Ikon:', e.message));
   }
-  if (!config.grafik.banner && fs.existsSync('assets/banner.png')) {
+  if (config.grafik.banner !== BANNER_VERSION && fs.existsSync('assets/banner.png')) {
     if (guild.premiumTier >= 2) {
-      await guild.setBanner('assets/banner.png', 'HOPDOP-banner').then(() => { config.grafik.banner = true; console.log('Server-banner er sat.'); devlogDiscord('🖼️ Discorden har fået et nyt HOPDOP-banner'); })
+      await guild.setBanner('assets/banner.png', 'HOPDOP-banner').then(() => { config.grafik.banner = BANNER_VERSION; console.log('Server-banner er sat.'); devlogDiscord('🖼️ Discorden har fået et nyt HOPDOP-banner'); })
         .catch(e => console.error('Banner:', e.message));
     } else if (!config.grafik.bannerSagt) {
       console.log(`Banner venter: Discord kræver boost-niveau 2 (nu niveau ${guild.premiumTier}). Det sættes automatisk, når I når det.`);
       config.grafik.bannerSagt = true;
     }
   }
-  if (!config.grafik.splash && fs.existsSync('assets/banner.png') && guild.premiumTier >= 1) {
-    await guild.setSplash('assets/banner.png', 'HOPDOP invite-baggrund').then(() => { config.grafik.splash = true; console.log('Invite-baggrund er sat.'); })
+  if (config.grafik.splash !== BANNER_VERSION && fs.existsSync('assets/banner.png') && guild.premiumTier >= 1) {
+    await guild.setSplash('assets/banner.png', 'HOPDOP invite-baggrund').then(() => { config.grafik.splash = BANNER_VERSION; console.log('Invite-baggrund er sat.'); })
       .catch(e => console.error('Invite-baggrund:', e.message));
+  }
+  // Serverbeskrivelse (vises i invites og Discovery - kræver at serveren er en Community-server)
+  if (config.grafik.beskrivelse !== SERVER_BESKRIVELSE) {
+    await guild.edit({ description: SERVER_BESKRIVELSE, reason: 'HOPDOP-beskrivelse' })
+      .then(() => { config.grafik.beskrivelse = SERVER_BESKRIVELSE; console.log('Serverbeskrivelse er sat.'); })
+      .catch(e => console.log('Serverbeskrivelse kunne ikke sættes (kræver Community-server):', e.message));
   }
   fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 }
-client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) saetGrafik(ny); });
+const SERVER_BESKRIVELSE = `Dansk Minecraft HCF Kits-server på 1.8.9 🏯 Kits, teams, KOTH og duels. Join: ${SERVER_IP}`;
+client.on('guildUpdate', (gl, ny) => { if (ny.premiumTier > gl.premiumTier) saetGrafik(ny); if (ny.premiumSubscriptionCount !== gl.premiumSubscriptionCount) opdaterBoostHoved(ny); });
+
+// ---------- #boosts: hvem har boosted serveren ----------
+const BOOST_TYPER = { 8: 0, 9: 1, 10: 2, 11: 3 }; // Discords boost-beskeder -> niveau (0 = intet nyt niveau)
+const sidstBoost = new Map(); // brugerId -> tid (så samme boost ikke skrives to gange)
+async function boostKanal(guild) {
+  return sikrKanal(guild, 'boosts', '🔮┃boosts', 'Tak til alle der booster HOPDOP! 💜', config.kanaler.velkommen);
+}
+async function opdaterBoostHoved(guild) {
+  try {
+    const kanal = await boostKanal(guild);
+    const n = guild.premiumSubscriptionCount || 0, niv = guild.premiumTier || 0;
+    const maal = [2, 7, 14][Math.min(niv, 2)];
+    const emb = new EmbedBuilder().setColor(0xf47fff).setAuthor({ name: 'HOPDOP · Boosts' })
+      .setTitle('💜 Tak til alle der booster HOPDOP!')
+      .setDescription([
+        `🔮 Boosts lige nu: **${n}**`,
+        `⭐ Niveau: **${niv}**${niv < 3 ? ` · næste niveau ved **${maal}** boosts` : ' · max niveau!'}`,
+        '', 'Hver gang nogen booster, bliver det skrevet herunder. Tak for støtten! 🙏',
+        niv < 2 ? '\n*Ved niveau 2 får Discorden sit HOPDOP-banner øverst i kanallisten.*' : '',
+      ].join('\n'))
+      .setThumbnail('attachment://ikon.png');
+    const filer = fs.existsSync('assets/ikon.png') ? [new AttachmentBuilder('assets/ikon.png', { name: 'ikon.png' })] : [];
+    if (!filer.length) emb.setThumbnail(null);
+    const gammel = await bottensBesked(kanal);
+    if (gammel && gammel.embeds.length) await gammel.edit({ embeds: [emb], files: filer, attachments: [] });
+    else await kanal.send({ embeds: [emb], files: filer });
+  } catch (e) { console.error('Boost-kanal:', e.message); }
+}
+async function skrivBoost(guild, bruger, antal = 1, niveau = 0) {
+  if (Date.now() - (sidstBoost.get(bruger.id) || 0) < 60000) return;
+  sidstBoost.set(bruger.id, Date.now());
+  const kanal = await boostKanal(guild);
+  const navn = `<@${bruger.id}>`;
+  let tekst = antal > 1 ? `🔮 ${navn} boostede lige serveren **${antal}** gange!` : `🔮 ${navn} har lige boosted serveren!`;
+  if (niveau) tekst += ` HOPDOP har opnået **Niveau ${niveau}!** 🎉`;
+  await kanal.send({ content: tekst, allowedMentions: { parse: [] } }).catch(e => console.error('Boost:', e.message));
+  devlogDiscord(`💜 ${bruger.username} har boosted Discorden`);
+}
+// Discord sender selv en "boost"-besked i systemkanalen - den læser vi
+client.on('messageCreate', m => {
+  if (!m.guild || !(m.type in BOOST_TYPER)) return;
+  const antal = Number(m.content) || 1;
+  skrivBoost(m.guild, m.author, antal, BOOST_TYPER[m.type]);
+});
+// Reserve: hvis systembeskeden er slået fra, ser vi det på medlemmet i stedet
+client.on('guildMemberUpdate', (gl, ny) => {
+  if (!gl.premiumSince && ny.premiumSince) setTimeout(() => skrivBoost(ny.guild, ny.user), 15000);
+});
 
 // ---------- TICKET-UDSKRIFT: hele samtalen som .txt-fil ----------
 async function lavUdskrift(kanal) {
@@ -807,6 +863,7 @@ async function opdaterGuide(guild) {
         `<#${config.kanaler.leaderboards}> · top 10 i kills, K/D, daily, duels og KOTH`,
         `<#${config.kanaler.serverstatus}> · er serveren oppe? 🟢/🔴`,
         `<#${config.kanaler.devlog}> · hvad der er nyt på serveren og Discorden`,
+        `<#${config.kanaler.boosts}> · hvem der har boosted Discorden 💜`,
       ].join('\n') },
       { name: '💡 Forslag', value: '`/forslag` · send en idé til serveren. Staff svarer, og du får en DM.' },
       { name: '🎫 Hjælp', value: `<#${config.kanaler.ticket}> · opret en ticket (support, køb, ansøgning eller anmeld en spiller)` },
@@ -878,6 +935,7 @@ client.once('clientReady', async () => {
   await opdaterServerStatus(); setInterval(opdaterServerStatus, 2 * 60000);
   await opdaterStatsKategori(); setInterval(opdaterStatsKategori, 10 * 60000);
   await opdaterLinkKanal(guild).catch(e => console.error('#link:', e.message));
+  await opdaterBoostHoved(guild);
   await saetGrafik(guild).catch(e => console.error('Grafik:', e.message));
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
