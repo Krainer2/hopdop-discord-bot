@@ -1146,13 +1146,13 @@ async function tilkaldStaff(i, grund) {
 }
 // ================= LAYOUT: opdel kanalerne i pæne kategorier (/layout anvend | fortryd) =================
 const LAYOUT_BACKUP = 'layout-backup.json';
-const LAYOUT_VERSION = 5;
+const LAYOUT_VERSION = 6;
 // Kategorier i rækkefølge (staff-kategorierne røres ikke). "gamle" = navne den kan have i forvejen. "kanaler" = nøgler i config.json eller navne på talekanaler.
 const LAYOUT = [
   { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
   { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus'] },
-  { navn: '[ 💬 ] TEKST KANALER', gamle: [], kanaler: ['chat', 'medier', 'memes', 'botcmd'] },
   { navn: '[ 🌟 ] COMMUNITY', gamle: ['💬 COMMUNITY'], kanaler: ['forslag', 'giveaways', 'leaderboards', 'boosts'] },
+  { navn: '[ 💬 ] TEKST KANALER', gamle: [], kanaler: ['chat', 'medier', 'memes', 'botcmd'] },
   { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '🎪 Event', '💬┃Hyggesnak', '🎮┃Makkerrum 1', '🎮┃Makkerrum 2', '🎪┃Eventrum'] },
   { navn: PRIVAT_KAT, gamle: [], noegle: 'privatkat', kanaler: ['privatkanal'] },
   { navn: '[ 🎫 ] TICKETS & SUPPORT', gamle: ['🎫 SUPPORT'], noegle: 'support', kanaler: ['ticket', 'fejl', 'ansog', 'tilkald', VENTE_RUM, ...SUPPORT_RUM] },
