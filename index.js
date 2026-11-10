@@ -1126,6 +1126,63 @@ async function tilkaldStaff(i, grund) {
         .setDescription(`${i.user} har tilkaldt staff.${grund ? `\n\n**Hvad:** ${grund}` : ''}\n\nTræk dem ned fra <#${(guild.channels.cache.find(c => c.name === VENTE_RUM) || {}).id || 'ventrum'}> når I er klar.`)] });
   } finally { for (const r of roller) r.setMentionable(false).catch(() => {}); }
 }
+// ================= LAYOUT: opdel kanalerne i pæne kategorier (/layout anvend | fortryd) =================
+const LAYOUT_BACKUP = 'layout-backup.json';
+// Kategorier i rækkefølge (staff-kategorierne røres ikke). "gamle" = navne den kan have i forvejen. "kanaler" = nøgler i config.json eller navne på talekanaler.
+const LAYOUT = [
+  { navn: '[ 💡 ] INFORMATION', gamle: ['📌 INFORMATION'], kanaler: ['velkommen', 'regler', 'roller', 'botguide', 'serverip'] },
+  { navn: '[ 📢 ] MEDDELELSER', gamle: [], kanaler: ['nyheder', 'events', 'devlog', 'serverstatus', 'leaderboards', 'giveaways', 'boosts'] },
+  { navn: '[ 💬 ] TEKST KANALER', gamle: ['💬 COMMUNITY'], kanaler: ['chat', 'medier', 'forslag', 'botcmd'] },
+  { navn: '[ 🔊 ] SNAKKE-KANALER', gamle: ['🔊 VOICE'], kanaler: ['🔊 Lounge', '🎮 Duo 1', '🎮 Duo 2', '🎪 Event'] },
+  { navn: '[ 🎫 ] TICKETS & SUPPORT', gamle: ['🎫 SUPPORT'], noegle: 'support', kanaler: ['ticket', 'fejl', 'ansog', 'tilkald', VENTE_RUM, ...SUPPORT_RUM] },
+];
+async function layoutAnvend(guild) {
+  await guild.channels.fetch();
+  const alle = [...guild.channels.cache.values()];
+  // Backup af hvordan det ser ud nu (så /layout fortryd kan sætte det tilbage)
+  const backup = { tid: Date.now(), kanaler: alle.map(c => ({ id: c.id, navn: c.name, parent: c.parentId, pos: c.rawPosition, kat: c.type === ChannelType.GuildCategory })), oprettet: [] };
+  const kat = []; // [{ladning, kategori}]
+  for (const l of LAYOUT) {
+    const navneSoeg = [l.navn, ...l.gamle].map(x => x.toLowerCase());
+    let k = l.noegle && config.kanaler[l.noegle] ? guild.channels.cache.get(config.kanaler[l.noegle]) : null;
+    if (!k) k = alle.find(c => c.type === ChannelType.GuildCategory && navneSoeg.includes(c.name.toLowerCase()));
+    if (!k) { k = await guild.channels.create({ name: l.navn, type: ChannelType.GuildCategory }); backup.oprettet.push(k.id); }
+    else if (k.name !== l.navn) await k.setName(l.navn).catch(e => console.error('Layout navn:', e.message));
+    kat.push({ l, k });
+  }
+  fs.writeFileSync(LAYOUT_BACKUP, JSON.stringify(backup, null, 2));
+  // Kategorierne: STATS (0) og LINK (1) bliver øverst, derefter vores
+  const top = ['statskat', 'linkkat'].map(n => config.kanaler[n]).filter(Boolean);
+  const mine = [...top, ...kat.map(x => x.k.id)];
+  const resten = alle.filter(c => c.type === ChannelType.GuildCategory && !mine.includes(c.id)).sort((a, b) => a.rawPosition - b.rawPosition).map(c => c.id);
+  const raekke = [...mine, ...resten];
+  await guild.channels.setPositions(raekke.map((id, position) => ({ channel: id, position }))).catch(e => console.error('Layout kategorier:', e.message));
+  // Kanalerne ind i kategorierne (uden at røre deres rettigheder)
+  let flyttet = 0;
+  const poster = [];
+  for (const { l, k } of kat) {
+    let n = 0;
+    for (const navn of l.kanaler) {
+      const c = config.kanaler[navn] ? guild.channels.cache.get(config.kanaler[navn]) : guild.channels.cache.find(x => x.name === navn && x.type !== ChannelType.GuildCategory);
+      if (!c) continue;
+      poster.push({ channel: c.id, parent: k.id, position: n++, lockPermissions: false });
+      flyttet++;
+    }
+  }
+  await guild.channels.setPositions(poster).catch(e => console.error('Layout kanaler:', e.message));
+  return { flyttet, kategorier: kat.length, nye: backup.oprettet.length };
+}
+async function layoutFortryd(guild) {
+  if (!fs.existsSync(LAYOUT_BACKUP)) return null;
+  const b = JSON.parse(fs.readFileSync(LAYOUT_BACKUP, 'utf8'));
+  await guild.channels.fetch();
+  for (const c of b.kanaler.filter(x => x.kat)) { const k = guild.channels.cache.get(c.id); if (k && k.name !== c.navn) await k.setName(c.navn).catch(() => {}); }
+  const poster = b.kanaler.filter(c => guild.channels.cache.has(c.id)).map(c => ({ channel: c.id, position: c.pos, parent: c.kat ? undefined : c.parent, lockPermissions: false }));
+  await guild.channels.setPositions(poster).catch(e => console.error('Layout fortryd:', e.message));
+  for (const id of b.oprettet) { const k = guild.channels.cache.get(id); if (k && !guild.channels.cache.some(c => c.parentId === id)) await k.delete().catch(() => {}); }
+  fs.renameSync(LAYOUT_BACKUP, `layout-fortrudt-${Date.now()}.json`);
+  return { kanaler: poster.length };
+}
 // ================= ROLLER MED SKILLELINJER (roller.json) =================
 // Botten opretter rollerne, sætter dem i rækkefølge med skillelinjer imellem, giver skillelinjerne
 // til alle der har en rolle i gruppen, og giver roller ud fra "tildel" (Discord-brugernavn -> roller).
@@ -1514,6 +1571,10 @@ const kommandoer = [
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Giv i 30 minutter', value: '30' }, { name: 'Giv i 1 time', value: '60' }, { name: 'Fjern nu', value: 'fjern' }))
     .setDefaultMemberPermissions(P.ManageMessages),
+  new SlashCommandBuilder().setName('layout').setDescription('Opdel kanalerne i pæne kategorier (kun Ejer)')
+    .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
+      .addChoices({ name: 'Opdel kanalerne', value: 'anvend' }, { name: 'Fortryd (sæt det tilbage)', value: 'fortryd' }))
+    .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('cc').setDescription('Ryd de sidste beskeder i denne kanal (staff)')
     .addIntegerOption(o => o.setName('antal').setDescription('Hvor mange beskeder? (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
     .setDefaultMemberPermissions(P.ManageMessages),
@@ -1758,6 +1819,16 @@ client.on('interactionCreate', async i => {
         ssData[bruger.id] = Date.now() + Number(h) * 60000; gemSs();
         logBro(i.user, `screenshare ${bruger.user.username} ${h} min`);
         return i.reply({ content: `🖥️ ${bruger} må screenshare i **${h === '60' ? '1 time' : '30 minutter'}**. Så fjerner botten adgangen igen.`, flags: MessageFlags.Ephemeral });
+      }
+      if (i.commandName === 'layout') {
+        if (!erEjer(i.member)) return i.reply({ content: 'Kun Ejer kan ændre layoutet.', flags: MessageFlags.Ephemeral });
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        if (i.options.getString('handling') === 'fortryd') {
+          const r = await layoutFortryd(i.guild).catch(e => { console.error('Layout:', e.message); return null; });
+          return i.editReply(r ? `↩️ Layoutet er sat tilbage (${r.kanaler} kanaler).` : '❌ Der er ingen backup at gå tilbage til.');
+        }
+        const r = await layoutAnvend(i.guild).catch(e => { console.error('Layout:', e.message); return null; });
+        return i.editReply(r ? `✅ Kanalerne er opdelt: **${r.flyttet}** kanaler i **${r.kategorier}** kategorier${r.nye ? ` (${r.nye} nye)` : ''}.\nStaff-kategorierne er ikke rørt. Kører du \`/layout fortryd\`, sætter jeg alt tilbage.` : '❌ Noget gik galt, se terminalen.');
       }
       if (i.commandName === 'cc') {
         if (!i.memberPermissions?.has(P.ManageMessages)) return i.reply({ content: 'Kun staff kan rydde chatten.', flags: MessageFlags.Ephemeral });
