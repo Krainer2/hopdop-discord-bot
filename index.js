@@ -482,40 +482,100 @@ async function opsaetAutoMod(guild) {
 // 2) Ændringer på Discorden (nye kanaler/roller, auto-mod, nye links) samles og postes hvert 30. min.
 // 3) /devlog i Discord (kun staff): skriv selv en opdatering.
 const DEVLOG_FIL = 'devlog.json', DEVLOG_POSTET = 'devlog-postet.json';
-const discordAendringer = [];
-function devlogDiscord(tekst) { if (!discordAendringer.includes(tekst)) discordAendringer.push(tekst); }
+// Ændringer samles i en kø (gemmes i devlog-ko.json, så de ikke går tabt ved genstart) og postes automatisk
+const KO_FIL = 'devlog-ko.json';
+const devlogKo = (() => { try { return JSON.parse(fs.readFileSync(KO_FIL, 'utf8')); } catch { return { t: 0, punkter: [] }; } })();
+const gemKo = () => fs.writeFileSync(KO_FIL, JSON.stringify(devlogKo));
+function devlogDiscord(tekst, kat = 'Discord') {
+  if (devlogKo.punkter.some(p => p.tekst === tekst && p.kat === kat)) return;
+  if (!devlogKo.punkter.length) devlogKo.t = Date.now();
+  devlogKo.punkter.push({ kat, tekst }); gemKo();
+}
 function devlogEmbed(titel, punkter, kategori) {
   return new EmbedBuilder().setColor(0x6366f1).setAuthor({ name: `HOPDOP · Dev-log${kategori ? ` · ${kategori}` : ''}` })
     .setTitle(`🛠️ ${titel}`)
     .setDescription(punkter.map(p => p.startsWith('•') || /^\p{Extended_Pictographic}/u.test(p) ? p : `• ${p}`).join('\n').slice(0, 4000))
     .setTimestamp();
 }
+let devlogRunde = 0;
 async function postDevlog() {
   try {
     const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
     if (!kanal) return;
     let liste = []; try { liste = JSON.parse(fs.readFileSync(DEVLOG_FIL, 'utf8')); } catch { /* ingen fil endnu */ }
+    // Nye opdateringer, jeg har lagt på GitHub, hentes også, så filen ikke skal kopieres ind på din pc først
+    if (devlogRunde++ % 3 === 0) {
+      try {
+        const r = await fetch(`https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/main/devlog.json?t=${Date.now()}`);
+        if (r.ok) for (const d of await r.json()) if (!liste.some(x => x.id === d.id)) liste.push(d);
+      } catch { /* GitHub svarer ikke lige nu */ }
+    }
     let postet = []; try { postet = JSON.parse(fs.readFileSync(DEVLOG_POSTET, 'utf8')); } catch { /* første gang */ }
     for (const d of liste) {
       if (!d.id || postet.includes(d.id)) continue;
       await sendPing(kanal, 'Dev-Log', { embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
       postet.push(d.id);
+      fs.writeFileSync(DEVLOG_POSTET, JSON.stringify(postet.slice(-500)));
     }
-    fs.writeFileSync(DEVLOG_POSTET, JSON.stringify(postet.slice(-500)));
   } catch (e) { console.error('Devlog:', e.message); }
 }
+const DEVLOG_TITLER = { Discord: 'Ændringer på Discorden', 'Discord-bot': 'Nyt i HOPDOP Bot', Minecraft: 'Ændringer på Minecraft-serveren', Hjemmeside: 'Ændringer på hjemmesiden' };
 async function postDiscordAendringer() {
-  if (!discordAendringer.length) return;
+  if (!devlogKo.punkter.length) return;
+  if (Date.now() - devlogKo.t < 5 * 60000 && devlogKo.punkter.length < 8) return; // saml lidt, så det ikke bliver mange små beskeder
   const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
   if (!kanal) return;
-  const punkter = discordAendringer.splice(0, discordAendringer.length);
-  await kanal.send({ embeds: [devlogEmbed('Ændringer på Discorden', punkter, 'Discord')] }).catch(e => console.error('Devlog:', e.message));
+  const alle = devlogKo.punkter.splice(0, devlogKo.punkter.length); gemKo();
+  for (const kat of [...new Set(alle.map(p => p.kat))]) {
+    const punkter = alle.filter(p => p.kat === kat).map(p => p.tekst);
+    for (let n = 0; n < punkter.length; n += 15)
+      await kanal.send({ embeds: [devlogEmbed(DEVLOG_TITLER[kat] || 'Ændringer', punkter.slice(n, n + 15), kat)] }).catch(e => console.error('Devlog:', e.message));
+  }
+}
+// Store ændringer på Minecraft-serveren og hjemmesiden: følger commits på GitHub (kun skripts og hjemmesidens public-mappe)
+const GIT_KILDER = [
+  { repo: 'Krainer2/claude-ai-auto-skript---afk', sti: 'skripts', kat: 'Minecraft', ikon: '📜', filter: f => f.startsWith('skripts/') && f.endsWith('.sk') },
+  { repo: 'Krainer2/Blandede---skirpts', sti: '', kat: 'Minecraft', ikon: '📜', filter: f => f.endsWith('.sk') },
+  { repo: 'Krainer2/hopdop-hjemmeside', sti: 'public', kat: 'Hjemmeside', ikon: '🌐', filter: f => f.startsWith('public/') },
+];
+async function tjekGit() {
+  config.devlogGit = config.devlogGit || {};
+  const hdr = { 'User-Agent': 'hopdop-bot', Accept: 'application/vnd.github+json', ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) };
+  for (const k of GIT_KILDER) {
+    try {
+      const sidst = config.devlogGit[k.repo];
+      if (!sidst) { config.devlogGit[k.repo] = new Date().toISOString(); gemCfg(); continue; } // første gang: kun nye ændringer herfra
+      const r = await fetch(`https://api.github.com/repos/${k.repo}/commits?${k.sti ? `path=${k.sti}&` : ''}since=${encodeURIComponent(sidst)}&per_page=20`, { headers: hdr });
+      if (!r.ok) continue;
+      let nyeste = sidst;
+      for (const c of (await r.json()).reverse()) {
+        const dato = c.commit.committer.date;
+        if (new Date(dato) <= new Date(sidst)) continue;
+        nyeste = dato;
+        const titel = c.commit.message.split('\n')[0].trim();
+        if (/^merge/i.test(titel)) continue;
+        const d = await fetch(c.url, { headers: hdr }).then(x => x.ok ? x.json() : null).catch(() => null);
+        const navne = [...new Set((d?.files || []).map(f => f.filename).filter(k.filter).map(f => f.split('/').pop()))];
+        if (!navne.length) continue;
+        devlogDiscord(`${k.ikon} **${navne.slice(0, 4).join(', ')}**${navne.length > 4 ? ` +${navne.length - 4}` : ''} · ${titel.slice(0, 160)}`, k.kat);
+      }
+      if (nyeste !== sidst) { config.devlogGit[k.repo] = nyeste; gemCfg(); }
+    } catch (e) { console.error('Git-devlog:', e.message); }
+  }
 }
 // Discord-ændringer, som spillerne kan se (tickets og staff-kanaler tæller ikke med)
 const erOffentlig = c => c && !String(c.topic || '').startsWith('ticket:') && c.permissionOverwrites?.cache?.get(config.roller['Spiller'])?.allow?.has(P.ViewChannel);
 client.on('channelCreate', c => { if (erOffentlig(c)) devlogDiscord(`📁 Ny kanal: <#${c.id}>`); });
 client.on('channelDelete', c => { if (erOffentlig(c)) devlogDiscord(`🗑️ Kanalen **#${c.name}** er fjernet`); });
 client.on('roleCreate', r => { if (!r.managed) devlogDiscord(`🏷️ Ny rolle: <@&${r.id}>`); });
+client.on('channelUpdate', (gl, ny) => { if (gl.name !== ny.name && erOffentlig(ny)) devlogDiscord(`✏️ Kanalen **#${gl.name}** hedder nu <#${ny.id}>`); });
+client.on('roleUpdate', (gl, ny) => { if (!ny.managed && gl.name !== ny.name) devlogDiscord(`✏️ Rollen **${gl.name}** hedder nu **${ny.name}**`); });
+client.on('guildUpdate', (gl, ny) => {
+  if (gl.name !== ny.name) devlogDiscord(`🏷️ Serveren hedder nu **${ny.name}**`);
+  if (gl.icon !== ny.icon) devlogDiscord('🖼️ Discorden har fået nyt server-ikon');
+  if (gl.banner !== ny.banner && ny.banner) devlogDiscord('🎨 Discorden har fået nyt banner');
+  if (ny.premiumTier > gl.premiumTier) devlogDiscord(`🚀 HOPDOP er nået til **Discord-niveau ${ny.premiumTier}** – nye fordele er låst op!`);
+});
 client.on('roleDelete', r => { if (!r.managed) devlogDiscord(`🗑️ Rollen **${r.name}** er fjernet`); });
 
 // Svar til /link og knappen i #link (kun brugeren selv kan se det)
@@ -2883,8 +2943,15 @@ client.once('clientReady', async () => {
   setInterval(() => { laasPings(guild).catch(() => {}); laasLaeseKanaler(guild).catch(() => {}); }, 5 * 60000);
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
+  // Nye eller fjernede bot-kommandoer kommer automatisk i dev-loggen
+  { const navne = kommandoer.map(c => c.name), gamle = config.devlogKmd; config.devlogKmd = navne; gemCfg();
+    if (gamle) {
+      for (const n of navne.filter(x => !gamle.includes(x))) devlogDiscord(`⌨️ Ny kommando: \`/${n}\` · ${kommandoer.find(c => c.name === n).description}`, 'Discord-bot');
+      for (const n of gamle.filter(x => !navne.includes(x))) devlogDiscord(`🗑️ Kommandoen \`/${n}\` er fjernet`, 'Discord-bot');
+    } }
   postDevlog(); setInterval(postDevlog, 60000);
-  setInterval(postDiscordAendringer, 30 * 60000);
+  setInterval(postDiscordAendringer, 60000); setTimeout(postDiscordAendringer, 20000);
+  tjekGit(); setInterval(tjekGit, 10 * 60000);
   if (!botNoegle()) console.log('BOT_NOEGLE mangler i .env - ansøgninger og straffe postes, så snart den er tilføjet.');
 });
 

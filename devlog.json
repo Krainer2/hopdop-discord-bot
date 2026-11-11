@@ -36,5 +36,52 @@
       "👥 Spillere og botten har fået deres egne sektioner i medlemslisten",
       "💬 Pænere live-chat med kommandoer vist for sig"
     ]
+  },
+  {
+    "id": "2026-11-11-stor-discord",
+    "kategori": "Discord",
+    "titel": "Stor opdatering: ny velkomst, regler og boosts",
+    "punkter": [
+      "🚪 **Ny velkomst:** Nye medlemmer starter i kategorien **Ikke verificeret** med kanalerne 👋┃sig-hej, ❓┃spørgsmål, 🎯┃find-spillere, 🖼️┃galleri og 🎲┃fri-snak",
+      "✅ Ny guide-kanal **hvordan-bliver-jeg-verificeret** viser trin for trin, hvordan du får adgang til resten af serveren",
+      "📜 **#regler** er gjort kort og pæn: læs hele regelsættet via linket, og tryk på **Accepter reglerne** for at komme ind",
+      "🧭 **Discords onboarding** er sat op med 4 spørgsmål (pings, kit, stil og spilletid) og nye ping-roller, så du selv vælger, hvad du vil høre om",
+      "🏷️ Rollen **Bots** ligger nu nederst i medlemslisten, og rollefarverne vises rigtigt igen (Ejer osv.)",
+      "🎨 Nyt HOPDOP-logo som server-ikon, banner og bot-avatar",
+      "💜 **Boost-belønninger:** Alle der booster får rollen **Booster**, adgang til 💜┃booster-lounge og kan vælge egen rollefarve med `/boosterfarve`",
+      "🎁 Hver boost-grænse (1, 2, 4, 7, 10 og 14 boosts) starter et **event for hele serveren**, fx dobbelt kill-penge",
+      "🔮 **#boosts** viser nu, hvor mange boosts vi mangler til næste Discord-niveau (banner, rolleikoner, eget invite-link m.m.) og til næste server-belønning",
+      "🛡️ **Auto-timeout:** Spam, gentagne beskeder og skrig med store bogstaver giver først en advarsel og derefter timeout",
+      "🕵️ Nye logs til staff gør det nemmere at fange regelbrydere hurtigt",
+      "📰 **Dev-loggen** opdaterer sig nu selv, når der sker større ændringer på Discorden, i botten, på serveren og på hjemmesiden"
+    ]
+  },
+  {
+    "id": "2026-11-11-stor-bot",
+    "kategori": "Discord-bot",
+    "titel": "Stor opdatering: nye kommandoer og automatiske events",
+    "punkter": [
+      "🔗 `/link` giver nu også rollen **Forbundet**, og dit **Minecraft-navn bliver dit kaldenavn** på Discord automatisk",
+      "🎮 `/ign` viser en spillers Minecraft-navn, eller hvem et Minecraft-navn er på Discord",
+      "🛡️ `/faction <navn>` viser et teams medlemmer, hvem der er online og teamets kills. Uden navn får du **top 10 teams**",
+      "🎨 `/boosterfarve` lader boosters vælge deres egen rollefarve",
+      "🎪 **Automatiske events:** Botten starter selv events ingame og skriver dem i #events med ping til Events-rollen",
+      "💰 Dobbelt og tredobbelt **kill-penge** i en periode, og ekstra **Beacon Drops** ind imellem",
+      "⏰ Events kommer typisk hver 2.-4. time om eftermiddagen og aftenen, når der er nok spillere online",
+      "📖 Alle kommandoer står i **#bot-guide**"
+    ]
+  },
+  {
+    "id": "2026-11-11-stor-server",
+    "kategori": "Minecraft og hjemmeside",
+    "titel": "Stor opdatering: serveren og hjemmesiden",
+    "punkter": [
+      "📜 **Nyt regelsæt** med 30 regler fordelt på 6 kapitler, med tilladte og forbudte mods og en oversigt over straffe",
+      "⌨️ `/regelsæt` viser reglerne direkte ingame",
+      "💰 Nyt **kill-penge event**: i en periode giver alle kills dobbelt eller tredobbelt penge",
+      "🛡️ Teams kan slås op fra Discord med `/faction`",
+      "🌐 **Hjemmesiden** har fået nyt design i solnedgangsfarver, der passer til det nye logo, og en ny side med hele regelsættet på hopdop.pages.dev/regler",
+      "🖼️ Nyt HOPDOP-logo på hjemmesiden og i link-forhåndsvisninger"
+    ]
   }
 ]
