@@ -1062,6 +1062,7 @@ async function tjekBro() {
     const d = await hentPrivat(`bro?efter=${broNr ?? 0}`);
     const foerste = broNr === null;
     broNr = d.nr;
+    if (d.fejl && d.fejl.t !== config.broFejlSet) { config.broFejlSet = d.fejl.t; gemCfg(); console.error('Bro-fejl fra serveren' + (d.fejl.reddet ? ' (reddet)' : '') + ':', JSON.stringify(d.fejl.tekst).slice(0, 500)); }
     if (foerste) return; // gammel chat fra før botten startede vises ikke
     for (const s of d.svar) {
       const v = ventSvar.get(s.id);
@@ -1367,7 +1368,7 @@ async function opsaetAabenKategori(guild) {
   if (g) {
     const reglerId = config.kanaler && config.kanaler.regler;
     const embed = new EmbedBuilder().setColor(0xff8c42).setTitle('✅ Hvordan bliver jeg verificeret?')
-      .setDescription(`Du er ikke verificeret endnu, derfor kan du kun se denne kategori. Det tager under et minut:\n\n**1.** Gå til ${reglerId ? `<#${reglerId}>` : '#regler'} og tryk på **Læs reglerne**.\n**2.** Tryk på **Accepter reglerne** under beskeden.\n**3.** Du får rollen **Spiller** med det samme og kan se resten af serveren.\n\nSer du ikke #regler? Så skriv i 👋┃sig-hej eller ❓┃spørgsmål, så hjælper en fra staff dig.`)
+      .setDescription(`Du er ikke verificeret endnu, derfor kan du kun se denne kategori. Det tager under et minut:\n\n**1.** Gå til ${reglerId ? `<#${reglerId}>` : '#regler'} og tryk på **Læs reglerne**.\n**2.** Tryk på **Accepter reglerne** og få din kode.\n**3.** Join serveren og skriv `/discord <kode>` i chatten. Så forbindes din Minecraft-konto, dit kaldenavn bliver dit ingame-navn, og du får rollen **Spiller** med det samme.\n\nSer du ikke #regler? Så skriv i 👋┃sig-hej eller ❓┃spørgsmål, så hjælper en fra staff dig.`)
       .setFooter({ text: 'HOPDOP · Verificering' });
     const msgs = await g.messages.fetch({ limit: 20 }).catch(() => null);
     const egen = msgs && msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.footer?.text === 'HOPDOP · Verificering');
@@ -1439,7 +1440,7 @@ async function opsaetOnboarding(guild) {
 }
 // ================= REGELSÆT I #regler =================
 // Én kort besked: link til reglerne på hjemmesiden + knap til at acceptere og få adgang
-const REGLER_VERSION = 4; // hæv tallet, når teksten skal sættes op igen
+const REGLER_VERSION = 5; // hæv tallet, når teksten skal sættes op igen
 async function opsaetRegler(guild) {
   config.community = config.community || {};
   if (config.community.regler === REGLER_VERSION) return;
@@ -1452,7 +1453,7 @@ async function opsaetRegler(guild) {
     if (botRegel || gammelRegel) await m.delete().catch(e => console.error('Kunne ikke slette regelbesked:', e.message));
   }
   const emb = new EmbedBuilder().setColor(0x4ade80).setTitle('📜 Velkommen til HopDop!')
-    .setDescription('Før du får adgang til resten af serveren, skal du læse vores regler. De gælder både ingame og her på Discord.\n\n**Sådan kommer du ind**\n**1.** Tryk på **Læs reglerne** og læs dem igennem.\n**2.** Tryk på **Accepter reglerne** for at få adgang.\n\nStaff afgør selv hver sag, så brug din sunde fornuft.')
+    .setDescription('Før du får adgang til resten af serveren, skal du læse vores regler. De gælder både ingame og her på Discord.\n\n**Sådan kommer du ind**\n**1.** Tryk på **Læs reglerne** og læs dem igennem.\n**2.** Tryk på **Accepter reglerne** og få en kode.\n**3.** Join serveren og skriv `/discord <kode>` ingame. Så forbindes din konto, og du får adgang her.\n\nStaff afgør selv hver sag, så brug din sunde fornuft.')
     .setFooter({ text: 'HOPDOP regelsæt' });
   const knapper = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setLabel('Læs reglerne').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(`${WEB}/regler`),
@@ -2674,6 +2675,8 @@ async function linkRolle(guild) {
 async function saetLinkProfil(guild, discordId, mcNavn) {
   const m = await guild.members.fetch(discordId).catch(() => null);
   if (!m) return;
+  const sp = config.roller['Spiller'];
+  if (sp && !m.roles.cache.has(sp)) await m.roles.add(sp, 'Forbundet med Minecraft = adgang til serveren').catch(e => console.error('Spiller-rolle:', e.message));
   const r = await linkRolle(guild);
   if (r && !m.roles.cache.has(r.id)) await m.roles.add(r, 'Forbundet med Minecraft').catch(e => console.error('Forbundet-rolle:', e.message));
   if (m.nickname !== mcNavn && m.manageable) await m.setNickname(mcNavn, 'Minecraft-navn fra /link').catch(e => console.error('Kaldenavn:', e.message));
@@ -3390,6 +3393,8 @@ client.on('interactionCreate', async i => {
     if (i.customId === 'verify') {
       const rolle = config.roller['Spiller'];
       if (i.member.roles.cache.has(rolle)) return i.reply({ content: 'Du har allerede adgang.', flags: MessageFlags.Ephemeral });
+      // Adgang kræver en forbundet Minecraft-konto: først koden herfra, så /discord <kode> ingame, og så får man rollen automatisk
+      if (!linkAf(i.user.id)) return i.reply({ ...linkSvar(i.user.id), content: '📜 Tak, fordi du accepterer reglerne! For at få adgang skal du først forbinde din Minecraft-konto:' });
       await i.member.roles.add(rolle);
       return i.reply({ content: '✅ Velkommen! Du har nu adgang til serveren.', flags: MessageFlags.Ephemeral });
     }
