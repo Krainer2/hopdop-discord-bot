@@ -844,7 +844,7 @@ const ADGANG_FIL = 'adgang.json';
 const ADGANG_KOMMANDOER = {
   konsol: 'Kør en hvilken som helst konsol-kommando', ban: 'Ban en spiller', mute: 'Mute en spiller', kick: 'Kick en spiller',
   unban: 'Fjern en ban', unmute: 'Fjern en mute', alts: 'Find alt-konti', genstart: 'Genstart serveren',
-  beacondrop: 'Start/stop Beacon Drop', autoevent: 'Start/stop auto-events', broadcast: 'Send en broadcast', sig: 'Skriv i chatten ingame', livechat: 'Se #live-chat',
+  beacondrop: 'Start/stop Beacon Drop', autoevent: 'Start/stop auto-events', botstatus: 'Se botten forbrug (RAM, kommandoer)', broadcast: 'Send en broadcast', sig: 'Skriv i chatten ingame', livechat: 'Se #live-chat',
 };
 const adgang = (() => { try { return JSON.parse(fs.readFileSync(ADGANG_FIL, 'utf8')); } catch { return {}; } })();
 for (const k of Object.keys(ADGANG_KOMMANDOER)) if (!adgang[k]) adgang[k] = ['Ejer']; // kun Ejer til at starte med
@@ -2512,6 +2512,7 @@ const kommandoer = [
     .addStringOption(o => o.setName('navn').setDescription('Teamets navn (tom = top 10)').setMaxLength(32)),
   new SlashCommandBuilder().setName('boosterfarve').setDescription('Kun for boosters: vælg din egen rollefarve')
     .addStringOption(o => o.setName('farve').setDescription('Hex-farve, fx ff66cc').setRequired(true).setMinLength(6).setMaxLength(7)),
+  new SlashCommandBuilder().setName('botstatus').setDescription('Se botten forbrug: RAM, oppetid og kommandoer i dag og i går'),
   new SlashCommandBuilder().setName('autoevent').setDescription('Start eller stop automatiske events (staff)')
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Start et event nu', value: 'start' }, { name: 'Stop kill-penge-eventet', value: 'stop' }, { name: 'Vis status', value: 'status' }, { name: 'Slå automatiske events til', value: 'til' }, { name: 'Slå automatiske events fra', value: 'fra' }))
@@ -2928,6 +2929,31 @@ async function tjekBoostMaal(guild) {
   } catch (e) { console.error('Boost-mål:', e.message); }
 }
 
+// ---------- FORBRUG: RAM og kommandoer pr. dag (til at vurdere hosting) ----------
+const FORBRUG_FIL = 'forbrug.json';
+const forbrug = (() => { try { return JSON.parse(fs.readFileSync(FORBRUG_FIL, 'utf8')); } catch { return { dage: {} }; } })();
+const dagNoegle = (d = new Date()) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
+function forbrugIdag() { const k = dagNoegle(); return forbrug.dage[k] || (forbrug.dage[k] = { kommandoer: 0, ramMax: 0, ramSum: 0, maalinger: 0, stop: 0 }); }
+function maalForbrug() {
+  const d = forbrugIdag(), mb = process.memoryUsage().rss / 1048576;
+  d.ramMax = Math.max(d.ramMax, Math.round(mb)); d.ramSum += mb; d.maalinger++;
+  for (const k of Object.keys(forbrug.dage).sort().slice(0, -30)) delete forbrug.dage[k];
+  try { fs.writeFileSync(FORBRUG_FIL, JSON.stringify(forbrug)); } catch { /* ingen skriveadgang */ }
+}
+forbrugIdag().stop++; // tæller starter (genstarter) i dag
+client.on('interactionCreate', i => { if (i.isChatInputCommand()) { forbrugIdag().kommandoer++; } });
+function botstatusSvar() {
+  const nu = forbrugIdag(), g = forbrug.dage[dagNoegle(new Date(Date.now() - 864e5))];
+  const snit = d => d && d.maalinger ? Math.round(d.ramSum / d.maalinger) : 0;
+  const t = process.uptime(), tid = `${Math.floor(t / 3600)} t ${Math.floor(t % 3600 / 60)} min`;
+  return { flags: MessageFlags.Ephemeral, embeds: [new EmbedBuilder().setColor(0x38bdf8).setTitle('📈 Bot-forbrug')
+    .addFields(
+      { name: 'Lige nu', value: `RAM: **${Math.round(process.memoryUsage().rss / 1048576)} MB**\nOppetid: **${tid}**\nPing til Discord: **${Math.round(client.ws.ping)} ms**` },
+      { name: 'I dag', value: `Kommandoer: **${nu.kommandoer}**\nRAM højest: **${nu.ramMax} MB** · gennemsnit **${snit(nu)} MB**\nStarter: **${nu.stop}**`, inline: true },
+      { name: 'I går', value: g ? `Kommandoer: **${g.kommandoer}**\nRAM højest: **${g.ramMax} MB** · gennemsnit **${snit(g)} MB**\nStarter: **${g.stop}**` : 'Ingen målinger endnu', inline: true })
+    .setFooter({ text: 'Målinger starter, når botten er opdateret · gemmes i forbrug.json' })] };
+}
+
 client.once('clientReady', async () => {
   console.log('Online som', client.user.tag);
   client.user.setPresence({ activities: [{ name: 'Hopdop', type: ActivityType.Playing }], status: 'online' });
@@ -2969,6 +2995,7 @@ client.once('clientReady', async () => {
       for (const n of navne.filter(x => !gamle.includes(x))) devlogDiscord(`⌨️ Ny kommando: \`/${n}\` · ${kommandoer.find(c => c.name === n).description}`, 'Discord-bot');
       for (const n of gamle.filter(x => !navne.includes(x))) devlogDiscord(`🗑️ Kommandoen \`/${n}\` er fjernet`, 'Discord-bot');
     } }
+  maalForbrug(); setInterval(maalForbrug, 5 * 60000);
   rettDevlogTeam();
   postDevlog(); setInterval(postDevlog, 60000);
   setInterval(postDiscordAendringer, 60000); setTimeout(postDiscordAendringer, 20000);
@@ -3183,6 +3210,7 @@ client.on('interactionCreate', async i => {
             return tilServer(i, `genstart ${h}${h === 'start' && sek ? ` ${sek}` : ''}`, `Genstart: ${h}${sek && h === 'start' ? ` (${sek} sek.)` : ''}`);
           }
           case 'autoevent': return autoeventKommando(i);
+          case 'botstatus': return i.reply(botstatusSvar());
           case 'beacondrop': return tilServer(i, `bd ${i.options.getString('handling')}`, `Beacon Drop: ${i.options.getString('handling')}`);
           case 'broadcast': return tilServer(i, `bc ${ren(i.options.getString('besked'))}`, 'Broadcast');
           case 'sig': {
