@@ -591,7 +591,7 @@ async function tjekGit() {
 const erOffentlig = c => c && !String(c.topic || '').startsWith('ticket:') && c.permissionOverwrites?.cache?.get(config.roller['Spiller'])?.allow?.has(P.ViewChannel);
 client.on('channelCreate', c => { if (erOffentlig(c)) devlogDiscord(`📁 Ny kanal: <#${c.id}>`); });
 client.on('channelDelete', c => { if (erOffentlig(c)) devlogDiscord(`🗑️ Kanalen **#${c.name}** er fjernet`); });
-client.on('channelUpdate', (gl, ny) => { if (gl.name !== ny.name && erOffentlig(ny)) devlogDiscord(`✏️ Kanalen **#${gl.name}** hedder nu <#${ny.id}>`); });
+// Omdøbte kanaler skrives ikke i dev-loggen: botten omdøber selv status-kanalerne hele tiden (antal online, server oppe/nede)
 client.on('guildUpdate', (gl, ny) => {
   if (gl.name !== ny.name) devlogDiscord(`🏷️ Serveren hedder nu **${ny.name}**`);
   if (gl.icon !== ny.icon) devlogDiscord('🖼️ Discorden har fået nyt server-ikon');
