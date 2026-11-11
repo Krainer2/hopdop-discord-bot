@@ -492,10 +492,33 @@ function devlogDiscord(tekst, kat = 'Discord') {
   if (!devlogKo.punkter.length) devlogKo.t = Date.now();
   devlogKo.punkter.push({ kat, tekst }); gemKo();
 }
-function devlogEmbed(titel, punkter, kategori) {
-  return new EmbedBuilder().setColor(0x6366f1).setAuthor({ name: `HOPDOP · Dev-log${kategori ? ` · ${kategori}` : ''}` })
-    .setTitle(`🛠️ ${titel}`)
-    .setDescription(punkter.map(p => p.startsWith('•') || /^\p{Extended_Pictographic}/u.test(p) ? p : `• ${p}`).join('\n').slice(0, 4000))
+// Dev-log i samme stil hver gang: "DEV-LOG @dato", en kort intro og tre afsnit med farvede orbs (tilføjet / ændret / fjernet)
+const ORB = { tilfoejet: ['orb_groen', '🟢'], aendret: ['orb_gul', '🟡'], fjernet: ['orb_roed', '🔴'] };
+const orbEmoji = type => {
+  const g = client.guilds.cache.get(process.env.GUILD_ID);
+  const e = g?.emojis.cache.find(x => x.name === ORB[type][0]);
+  return e ? `<:${e.name}:${e.id}>` : ORB[type][1];
+};
+const DEVLOG_AFSNIT = { tilfoejet: 'Vi har tilføjet:', aendret: 'Vi har ændret:', fjernet: 'Vi har fjernet:' };
+const fjernIkon = t => t.replace(/^(?:\p{Extended_Pictographic}\uFE0F?(?:\u200d\p{Extended_Pictographic}\uFE0F?)*\s*)+/u, '').trim() || t;
+const devlogPunkt = p => { p = fjernIkon(String(p).trim()); return p.startsWith('•') ? p : `• ${p}`; };
+function devlogDato() { return new Date().toLocaleDateString('da-DK', { timeZone: 'Europe/Copenhagen', day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\./g, '-'); }
+// Gætter ud fra teksten, om noget er tilføjet, ændret eller fjernet
+function devlogType(t) {
+  if (/\b(fjernet|fjern|fjerne|slettet|slet)\b/i.test(t)) return 'fjernet';
+  if (/hedder nu|ændr|\bret(tet)?\b|\bfix|opdater|juster|forbedr|nyt (server-)?(ikon|banner)/i.test(t)) return 'aendret';
+  return 'tilfoejet';
+}
+function devlogEmbed({ intro, tilfoejet = [], aendret = [], fjernet = [], kategori }) {
+  const dele = [];
+  if (intro) dele.push(intro);
+  for (const type of ['tilfoejet', 'aendret', 'fjernet']) {
+    const liste = { tilfoejet, aendret, fjernet }[type];
+    if (liste.length) dele.push(`${orbEmoji(type)} **${DEVLOG_AFSNIT[type]}**\n${liste.map(devlogPunkt).join('\n')}`);
+  }
+  return new EmbedBuilder().setColor(0x6366f1).setAuthor({ name: `HOPDOP${kategori ? ` · ${kategori}` : ''}` })
+    .setTitle(`🛠️ DEV-LOG @${devlogDato()}`)
+    .setDescription(dele.join('\n\n').slice(0, 4000))
     .setTimestamp();
 }
 let devlogRunde = 0;
@@ -514,13 +537,13 @@ async function postDevlog() {
     let postet = []; try { postet = JSON.parse(fs.readFileSync(DEVLOG_POSTET, 'utf8')); } catch { /* første gang */ }
     for (const d of liste) {
       if (!d.id || postet.includes(d.id)) continue;
-      await sendPing(kanal, 'Dev-Log', { embeds: [devlogEmbed(d.titel || 'Opdatering', d.punkter || [], d.kategori)] });
+      await sendPing(kanal, 'Dev-Log', { embeds: [devlogEmbed({ intro: d.intro || d.titel, tilfoejet: d.tilfoejet || (d.aendret || d.fjernet ? [] : d.punkter || []), aendret: d.aendret, fjernet: d.fjernet, kategori: d.kategori })] });
       postet.push(d.id);
       fs.writeFileSync(DEVLOG_POSTET, JSON.stringify(postet.slice(-500)));
     }
   } catch (e) { console.error('Devlog:', e.message); }
 }
-const DEVLOG_TITLER = { Discord: 'Ændringer på Discorden', 'Discord-bot': 'Nyt i HOPDOP Bot', Minecraft: 'Ændringer på Minecraft-serveren', Hjemmeside: 'Ændringer på hjemmesiden' };
+const DEVLOG_INTRO = { Discord: 'Siden sidst er der sket nogle ændringer på Discorden. Her kan du læse, hvad der er nyt.', 'Discord-bot': 'HOPDOP Bot er blevet opdateret. Her kan du læse, hvad der er nyt.', Minecraft: 'Siden sidst har vi arbejdet på Minecraft-serveren. Her kan du læse, hvad der er nyt.', Hjemmeside: 'Siden sidst har vi arbejdet på hjemmesiden. Her kan du læse, hvad der er nyt.' };
 async function postDiscordAendringer() {
   if (!devlogKo.punkter.length) return;
   if (Date.now() - devlogKo.t < 5 * 60000 && devlogKo.punkter.length < 8) return; // saml lidt, så det ikke bliver mange små beskeder
@@ -528,9 +551,9 @@ async function postDiscordAendringer() {
   if (!kanal) return;
   const alle = devlogKo.punkter.splice(0, devlogKo.punkter.length); gemKo();
   for (const kat of [...new Set(alle.map(p => p.kat))]) {
-    const punkter = alle.filter(p => p.kat === kat).map(p => p.tekst);
-    for (let n = 0; n < punkter.length; n += 15)
-      await kanal.send({ embeds: [devlogEmbed(DEVLOG_TITLER[kat] || 'Ændringer', punkter.slice(n, n + 15), kat)] }).catch(e => console.error('Devlog:', e.message));
+    const dele = { tilfoejet: [], aendret: [], fjernet: [] };
+    for (const p of alle.filter(p => p.kat === kat)) dele[p.type || devlogType(p.tekst)].push(p.tekst);
+    await kanal.send({ embeds: [devlogEmbed({ intro: DEVLOG_INTRO[kat] || 'Der er sket nogle ændringer.', ...dele, kategori: kat })] }).catch(e => console.error('Devlog:', e.message));
   }
 }
 // Store ændringer på Minecraft-serveren og hjemmesiden: følger commits på GitHub (kun skripts og hjemmesidens public-mappe)
@@ -3064,7 +3087,9 @@ client.on('interactionCreate', async i => {
       const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
       if (!kanal) return i.reply({ content: '#dev-log findes ikke.', flags: MessageFlags.Ephemeral });
       const punkter = i.fields.getTextInputValue('punkter').split('\n').map(x => x.trim()).filter(Boolean);
-      await kanal.send({ embeds: [devlogEmbed(i.fields.getTextInputValue('titel'), punkter).setFooter({ text: `Skrevet af ${i.user.username}` })] });
+      const dele = { tilfoejet: [], aendret: [], fjernet: [] };
+      for (const p of punkter) { const t = p[0] === '~' ? 'aendret' : p[0] === '-' ? 'fjernet' : 'tilfoejet'; dele[t].push(/^[+~-]\s/.test(p) ? p.slice(1).trim() : p); }
+      await kanal.send({ embeds: [devlogEmbed({ intro: i.fields.getTextInputValue('titel'), ...dele }).setFooter({ text: `Skrevet af ${i.user.username}` })] });
       return i.reply({ content: `Dev-loggen er sendt i ${kanal}. 🛠️`, flags: MessageFlags.Ephemeral });
     }
 
@@ -3285,7 +3310,7 @@ client.on('interactionCreate', async i => {
       if (i.commandName === 'devlog') {
         return i.showModal(new ModalBuilder().setCustomId('devlog_modal').setTitle('Ny dev-log').addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('titel').setLabel('Overskrift').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('punkter').setLabel('Hvad er nyt? (én ting pr. linje)').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(3000))));
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('punkter').setLabel('Én pr. linje (~ ændret, - fjernet)').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(3000))));
       }
       if (i.commandName === 'say') {
         await i.channel.send({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle(i.options.getString('titel')).setDescription(i.options.getString('tekst').replace(/\\n/g, '\n'))] });
