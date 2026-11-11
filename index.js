@@ -492,8 +492,8 @@ function devlogDiscord(tekst, kat = 'Discord') {
   if (!devlogKo.punkter.length) devlogKo.t = Date.now();
   devlogKo.punkter.push({ kat, tekst }); gemKo();
 }
-// Dev-log i samme stil hver gang: "DEV-LOG @dato", en kort intro og tre afsnit med farvede orbs (tilføjet / ændret / fjernet)
-const ORB = { tilfoejet: ['orb_groen', '🟢'], aendret: ['orb_gul', '🟡'], fjernet: ['orb_roed', '🔴'] };
+// Dev-log i samme stil hver gang: "DEV-LOG @dato", en kort intro og tre afsnit med egne tegn: plus (tilføjet), pile (ændret), minus (fjernet)
+const ORB = { tilfoejet: ['dev_plus', '➕'], aendret: ['dev_aendret', '🔄'], fjernet: ['dev_minus', '➖'] };
 const orbEmoji = type => {
   const g = client.guilds.cache.get(process.env.GUILD_ID);
   const e = g?.emojis.cache.find(x => x.name === ORB[type][0]);
@@ -1536,14 +1536,17 @@ const EMOJI_MAPPE = 'emojis';
 // Forståelige navne ud fra, hvad billedet viser (nøgle = filnavn uden endelse og tal-præfiks)
 const EMOJI_NAVNE = { crying: 'frø_græder', pepehammer: 'frø_hammer', noo: 'noo_græder', sad: 'frø_trist', pepe: 'frø_hænder_op', pepebless: 'frø_beder',
   pepestare: 'frø_stirrer', pepeplusone: 'frø_plus_en', thumbsupcat: 'kat_tommel_op', pepedepressed: 'frø_deprimeret', pepegoogoo: 'frø_baby', pepehappy: 'frø_glad' };
-const EMOJI_SPRING = ['pepehang']; // viser selvskade (galge) - tilføjes aldrig
+const EMOJI_SPRING = ['pepehang'];
+const EMOJI_UDGAAET = ['orb_groen', 'orb_gul', 'orb_roed']; // første udkast til dev-log-tegn, erstattet af dev_plus/dev_aendret/dev_minus // viser selvskade (galge) - tilføjes aldrig
 async function opsaetEmojiMappe(guild) {
   if (!fs.existsSync(EMOJI_MAPPE)) { fs.mkdirSync(EMOJI_MAPPE); fs.writeFileSync(`${EMOJI_MAPPE}/LÆS-MIG.txt`, 'Læg PNG-, JPG- eller GIF-filer her (max 256 KB pr. fil).\r\nFilnavnet bliver emojiens navn, fx sejt_sværd.png -> :sejt_sværd:\r\nSå skriver du /emojis på Discord, eller genstarter botten.\r\n'); }
   await guild.emojis.fetch();
+  for (const e of guild.emojis.cache.filter(x => EMOJI_UDGAAET.includes(x.name)).values()) await e.delete('Erstattet af nye dev-log-tegn').catch(() => {});
   const resultat = { nye: [], sprunget: [], fejl: [] };
   for (const fil of fs.readdirSync(EMOJI_MAPPE)) {
     if (!/\.(png|jpe?g|gif)$/i.test(fil)) continue;
     const stamme = fil.replace(/\.[^.]+$/, '').replace(/^\d+[-_]/, '').toLowerCase();
+    if (EMOJI_UDGAAET.includes(stamme)) continue;
     if (EMOJI_SPRING.includes(stamme)) { resultat.fejl.push(`${fil} (springet over: viser selvskade)`); continue; }
     const navn = EMOJI_NAVNE[stamme] || stamme.replace(/[^a-zA-Z0-9_æøåÆØÅ]/g, '_').slice(0, 32);
     if (navn.length < 2) { resultat.fejl.push(`${fil} (navnet er for kort)`); continue; }
