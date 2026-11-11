@@ -8,7 +8,8 @@ const { Client, GatewayIntentBits, ChannelType, PermissionFlagsBits: P, EmbedBui
 const FARVE = 0x3b82f6;
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const STAFF = ['Ejer', 'Admin', 'Mod', 'Hjælper'].map(n => config.roller[n]);
-const SERVER_IP = process.env.SERVER_IP || 'hopdop.superawesome.dk';
+// OBS: Wispbyte (Pterodactyl) sætter selv SERVER_IP til en privat adresse, så vi bruger HOPDOP_IP i stedet.
+const SERVER_IP = process.env.HOPDOP_IP || 'hopdop.superawesome.dk';
 const IP_NOTE = 'Da vi ikke har VIP, kan du ikke connecte direkte til Hopdop. Join med IP\'en ovenfor, og følg instrukserne, der kommer i chatten.';
 
 // Tjekker om "Message Content Intent" er slået til i Developer Portal (ellers ville botten ikke kunne logge ind)
