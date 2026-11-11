@@ -445,9 +445,14 @@ async function opdaterServerStatus() {
         { name: '👥 Online', value: oppe ? `**${online}** ${online === 1 ? 'spiller' : 'spillere'}` : '-', inline: true },
         { name: '📡 Sidste data', value: sidst ? `<t:${Math.floor(sidst / 1000)}:R>` : 'Aldrig', inline: true },
         { name: '🌐 IP', value: `\`${SERVER_IP}\`` })
-      .setFooter({ text: 'Tjekkes hvert 2. minut · Ved nedetid kommer der en besked herunder' }).setTimestamp();
+      .setFooter({ text: 'Tjekkes hvert 2. minut · Ved nedetid kommer der en besked herunder, som fjernes igen efter 1 time' }).setTimestamp();
     if (!statusBesked) statusBesked = await bottensBesked(kanal);
     statusBesked = statusBesked ? await statusBesked.edit({ embeds: [emb] }) : await kanal.send({ embeds: [emb] });
+    // "Oppe igen"/"nede"-beskeder er det samme som status-beskeden øverst, så de fjernes igen efter 1 time
+    const gamle = await kanal.messages.fetch({ limit: 30 }).catch(() => null);
+    for (const m of gamle?.values() || []) {
+      if (m.author.id === client.user.id && m.id !== statusBesked.id && !m.pinned && Date.now() - m.createdTimestamp > 60 * 60000) m.delete().catch(() => {});
+    }
   } catch (e) { console.error('Server-status:', e.message); }
 }
 
