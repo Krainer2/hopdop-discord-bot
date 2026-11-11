@@ -885,7 +885,7 @@ async function tilServer(i, kommando, beskrivelse, udenSvar = false, { fmt = nul
   await i.editReply(`⏳ ${beskrivelse} ... sendt til serveren, venter på svar.`);
   const timer = setTimeout(() => {
     ventSvar.delete(id);
-    i.editReply(`⚠️ ${beskrivelse}: sendt, men serveren har ikke svaret inden for 40 sek. Kører DiscordBro.sk? (Tjek `/discordbro` ingame.)`).catch(() => {});
+    i.editReply(`⚠️ ${beskrivelse}: sendt, men serveren har ikke svaret inden for 40 sek. Kører DiscordBro.sk? (Tjek \`/discordbro\` ingame.)`).catch(() => {});
   }, 40000);
   ventSvar.set(id, { i, beskrivelse, timer, fmt });
   if (log) logBro(i.user, kommando);
@@ -1368,7 +1368,7 @@ async function opsaetAabenKategori(guild) {
   if (g) {
     const reglerId = config.kanaler && config.kanaler.regler;
     const embed = new EmbedBuilder().setColor(0xff8c42).setTitle('✅ Hvordan bliver jeg verificeret?')
-      .setDescription(`Du er ikke verificeret endnu, derfor kan du kun se denne kategori. Det tager under et minut:\n\n**1.** Gå til ${reglerId ? `<#${reglerId}>` : '#regler'} og tryk på **Læs reglerne**.\n**2.** Tryk på **Accepter reglerne** og få din kode.\n**3.** Join serveren og skriv `/discord <kode>` i chatten. Så forbindes din Minecraft-konto, dit kaldenavn bliver dit ingame-navn, og du får rollen **Spiller** med det samme.\n\nSer du ikke #regler? Så skriv i 👋┃sig-hej eller ❓┃spørgsmål, så hjælper en fra staff dig.`)
+      .setDescription(`Du er ikke verificeret endnu, derfor kan du kun se denne kategori. Det tager under et minut:\n\n**1.** Gå til ${reglerId ? `<#${reglerId}>` : '#regler'} og tryk på **Læs reglerne**.\n**2.** Tryk på **Accepter reglerne** og få din kode.\n**3.** Join serveren og skriv \`/discord <kode>\` i chatten. Så forbindes din Minecraft-konto, dit kaldenavn bliver dit ingame-navn, og du får rollen **Spiller** med det samme.\n\nSer du ikke #regler? Så skriv i 👋┃sig-hej eller ❓┃spørgsmål, så hjælper en fra staff dig.`)
       .setFooter({ text: 'HOPDOP · Verificering' });
     const msgs = await g.messages.fetch({ limit: 20 }).catch(() => null);
     const egen = msgs && msgs.find(m => m.author.id === client.user.id && m.embeds[0]?.footer?.text === 'HOPDOP · Verificering');
