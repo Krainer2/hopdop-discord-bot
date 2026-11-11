@@ -348,7 +348,6 @@ async function tjekLinks() {
       // Samme Minecraft-konto må kun være forbundet med én Discord
       for (const [d, l] of Object.entries(linkData.links)) if (l.u === k.u && d !== v.d) delete linkData.links[d];
       linkData.links[v.d] = { u: k.u, n: k.n, r: '' };
-      devlogDiscord(`🔗 **${k.n}** har forbundet sin Minecraft med Discord`);
       delete linkData.ventende[kode];
       profilSat.add(v.d + k.n); await saetLinkProfil(guild, v.d, k.n);
       console.log(`Forbundet: ${k.n} <-> ${v.d}`);
@@ -473,7 +472,7 @@ async function opsaetAutoMod(guild) {
     if (findes.some(x => x.name === r.name)) continue;
     if (r.triggerType !== 1 && findes.some(x => x.triggerType === r.triggerType)) { console.log(`AutoMod: der findes allerede en regel af typen til "${r.name}"`); continue; }
     await guild.autoModerationRules.create({ ...r, eventType: 1, enabled: true, exemptRoles: STAFF, reason: 'HOPDOP auto-mod' })
-      .then(() => { console.log('AutoMod-regel oprettet:', r.name); devlogDiscord(`🛡️ Ny auto-mod regel: **${r.name.replace('HOPDOP · ', '')}**`); })
+      .then(() => { console.log('AutoMod-regel oprettet:', r.name); })
       .catch(e => console.error('AutoMod:', r.name, e.message));
   }
 }
@@ -560,7 +559,6 @@ async function postDiscordAendringer() {
 const GIT_KILDER = [
   { repo: 'Krainer2/claude-ai-auto-skript---afk', sti: 'skripts', kat: 'Minecraft', ikon: '📜', filter: f => f.startsWith('skripts/') && f.endsWith('.sk') },
   { repo: 'Krainer2/Blandede---skirpts', sti: '', kat: 'Minecraft', ikon: '📜', filter: f => f.endsWith('.sk') },
-  { repo: 'Krainer2/hopdop-hjemmeside', sti: 'public', kat: 'Hjemmeside', ikon: '🌐', filter: f => f.startsWith('public/') },
 ];
 async function tjekGit() {
   config.devlogGit = config.devlogGit || {};
@@ -579,9 +577,10 @@ async function tjekGit() {
         const titel = c.commit.message.split('\n')[0].trim();
         if (/^merge/i.test(titel)) continue;
         const d = await fetch(c.url, { headers: hdr }).then(x => x.ok ? x.json() : null).catch(() => null);
-        const navne = [...new Set((d?.files || []).map(f => f.filename).filter(k.filter).map(f => f.split('/').pop()))];
+        // Kun helt nye skripts (ikke rettelser i gamle)
+        const navne = [...new Set((d?.files || []).filter(f => f.status === 'added').map(f => f.filename).filter(k.filter).map(f => f.split('/').pop()))];
         if (!navne.length) continue;
-        devlogDiscord(`${k.ikon} **${navne.slice(0, 4).join(', ')}**${navne.length > 4 ? ` +${navne.length - 4}` : ''} · ${titel.slice(0, 160)}`, k.kat);
+        devlogDiscord(`${k.ikon} Nyt skript: **${navne.slice(0, 4).join(', ')}**${navne.length > 4 ? ` +${navne.length - 4}` : ''}`, k.kat);
       }
       if (nyeste !== sidst) { config.devlogGit[k.repo] = nyeste; gemCfg(); }
     } catch (e) { console.error('Git-devlog:', e.message); }
@@ -589,13 +588,10 @@ async function tjekGit() {
 }
 // Discord-ændringer, som spillerne kan se (tickets og staff-kanaler tæller ikke med)
 const erOffentlig = c => c && !String(c.topic || '').startsWith('ticket:') && c.permissionOverwrites?.cache?.get(config.roller['Spiller'])?.allow?.has(P.ViewChannel);
-client.on('channelCreate', c => { if (erOffentlig(c)) devlogDiscord(`📁 Ny kanal: <#${c.id}>`); });
-client.on('channelDelete', c => { if (erOffentlig(c)) devlogDiscord(`🗑️ Kanalen **#${c.name}** er fjernet`); });
+// Nye/fjernede kanaler skrives ikke automatisk i dev-loggen (kun efter aftale)
 // Omdøbte kanaler skrives ikke i dev-loggen: botten omdøber selv status-kanalerne hele tiden (antal online, server oppe/nede)
+// Kun store ting skrives automatisk i dev-loggen: nye Minecraft-skripts og nyt Discord-niveau. Alt andet kun efter aftale.
 client.on('guildUpdate', (gl, ny) => {
-  if (gl.name !== ny.name) devlogDiscord(`🏷️ Serveren hedder nu **${ny.name}**`);
-  if (gl.icon !== ny.icon) devlogDiscord('🖼️ Discorden har fået nyt server-ikon');
-  if (gl.banner !== ny.banner && ny.banner) devlogDiscord('🎨 Discorden har fået nyt banner');
   if (ny.premiumTier > gl.premiumTier) devlogDiscord(`🚀 HOPDOP er nået til **Discord-niveau ${ny.premiumTier}** – nye fordele er låst op!`);
 });
 
@@ -717,7 +713,7 @@ async function saetGrafik(guild) {
   }
   if (config.grafik.banner !== BANNER_VERSION && fs.existsSync('assets/banner.png')) {
     if (guild.premiumTier >= 2) {
-      await guild.setBanner('assets/banner.png', 'HOPDOP-banner').then(() => { config.grafik.banner = BANNER_VERSION; console.log('Server-banner er sat.'); devlogDiscord('🖼️ Discorden har fået et nyt HOPDOP-banner'); })
+      await guild.setBanner('assets/banner.png', 'HOPDOP-banner').then(() => { config.grafik.banner = BANNER_VERSION; console.log('Server-banner er sat.'); })
         .catch(e => console.error('Banner:', e.message));
     } else if (!config.grafik.bannerSagt) {
       console.log(`Banner venter: Discord kræver boost-niveau 2 (nu niveau ${guild.premiumTier}). Det sættes automatisk, når I når det.`);
@@ -788,7 +784,6 @@ async function skrivBoost(guild, bruger, antal = 1, niveau = 0) {
   let tekst = antal > 1 ? `🔮 ${navn} boostede lige serveren **${antal}** gange!` : `🔮 ${navn} har lige boosted serveren!`;
   if (niveau) tekst += ` HOPDOP har opnået **Niveau ${niveau}!** 🎉`;
   await kanal.send({ content: tekst, allowedMentions: { parse: [] } }).catch(e => console.error('Boost:', e.message));
-  devlogDiscord(`💜 ${bruger.username} har boosted Discorden`);
 }
 // ================= CENSUR: grove ord bliver til spoilers =================
 // Botten sletter beskeden og sender den igen (med spillerens navn og billede), hvor det grove ord står som ||spoiler||.
@@ -2816,7 +2811,6 @@ async function startEvent(typeId, { min, kilde = 'Automatisk event' } = {}) {
   } catch (e) { console.error('Event-besked:', e.message); }
   config.events.aktive.push({ type: typeId, min: m, slut: slut || Date.now() + 10 * 60000, msg: msgId, kilde, tidsstyret: !!slut });
   gemCfg();
-  devlogDiscord(`🎪 Event startet: **${t.navn}** (${kilde})`);
   return true;
 }
 async function tjekEvents() {
@@ -3034,7 +3028,7 @@ client.once('clientReady', async () => {
   // Nye eller fjernede bot-kommandoer kommer automatisk i dev-loggen
   { const navne = kommandoer.map(c => c.name), gamle = config.devlogKmd?.map(n => n === 'faction' ? 'team' : n); config.devlogKmd = navne; gemCfg();
     if (gamle) {
-      for (const n of navne.filter(x => !gamle.includes(x))) devlogDiscord(`⌨️ Ny kommando: \`/${n}\` · ${kommandoer.find(c => c.name === n).description}`, 'Discord-bot');
+      // Nye kommandoer skrives ikke automatisk i dev-loggen (kun efter aftale)
     } }
   maalForbrug(); setInterval(maalForbrug, 5 * 60000);
   rettDevlogTeam();
