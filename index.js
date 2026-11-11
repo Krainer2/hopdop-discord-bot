@@ -2453,7 +2453,7 @@ async function opdaterGuide(guild) {
         '`/stats <spiller>` · kills, K/D, placering, team og duels, ligesom ingame',
         '`/top <liste>` · top 10 i kills, K/D, daily, duels, KOTH m.m.',
         '`/online` · hvem der er på serveren lige nu',
-        '`/faction <navn>` · et teams medlemmer og kills (uden navn: top 10 teams)',
+        '`/team <navn>` · et teams medlemmer og kills (uden navn: top 10 teams)',
         '`/ign` · se Minecraft-navnet på en forbundet spiller',
       ].join('\n') },
       { name: '🔗 Forbind Minecraft', value: [
@@ -2488,7 +2488,7 @@ async function opdaterGuide(guild) {
 }
 
 // Kommandoer som almindelige spillere kun må bruge i #bot-kommandoer (staff må overalt)
-const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online', 'link', 'ign', 'faction', 'boosterfarve'];
+const OFFENTLIGE = ['ip', 'forslag', 'stats', 'top', 'online', 'link', 'ign', 'team', 'boosterfarve'];
 
 const erStaff = m => m.roles.cache.some(r => STAFF.includes(r.id));
 const TYPER = { support: ['Support', '🛟'], koeb: ['Køb', '💳'], ansoeg: ['Ansøgning', '📝'], fejl: ['Anmeldelse', '🚨'], bug: ['Fejlrapport', '🐞'] };
@@ -2508,7 +2508,7 @@ const kommandoer = [
   new SlashCommandBuilder().setName('ign').setDescription('Se Minecraft-navnet på en forbundet spiller, eller find ud af hvem et Minecraft-navn er')
     .addUserOption(o => o.setName('bruger').setDescription('Discord-bruger (tom = dig selv)'))
     .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn: find hvem det er på Discord').setMaxLength(16)),
-  new SlashCommandBuilder().setName('faction').setDescription('Se et team: medlemmer, kills og mere. Uden navn: top 10')
+  new SlashCommandBuilder().setName('team').setDescription('Se et team: medlemmer, kills og mere. Uden navn: top 10')
     .addStringOption(o => o.setName('navn').setDescription('Teamets navn (tom = top 10)').setMaxLength(32)),
   new SlashCommandBuilder().setName('boosterfarve').setDescription('Kun for boosters: vælg din egen rollefarve')
     .addStringOption(o => o.setName('farve').setDescription('Hex-farve, fx ff66cc').setRequired(true).setMinLength(6).setMaxLength(7)),
@@ -2615,7 +2615,7 @@ const kommandoer = [
 ].map(c => c.toJSON());
 
 // =====================================================================================
-// NYT: LINK-PROFIL, /faction, AUTO-TIMEOUT, AUTO-EVENTS OG BOOST-BELØNNINGER
+// NYT: LINK-PROFIL, /team, AUTO-TIMEOUT, AUTO-EVENTS OG BOOST-BELØNNINGER
 // =====================================================================================
 const gemCfg = () => fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
 const profilSat = new Set(); // "discordId+mcNavn" når rolle og kaldenavn er sat i denne kørsel
@@ -2658,8 +2658,10 @@ function ignSvar(i) {
   return { content: `🎮 <@${bruger.id}> spiller som **${l.n}** på Hopdop.`, ...ep };
 }
 
-// ---------- /faction ----------
-function factionSvar(tekst) {
+// ---------- /team ----------
+const TEAM_FELTER = { level: '⭐ Level', leder: '👑 Leder', leader: '👑 Leder', ejer: '👑 Leder', owner: '👑 Leder', dtr: '❤️ DTR', strikes: '⚠️ Strikes', koth: '🏔️ KOTH-sejre',
+  kothsejre: '🏔️ KOTH-sejre', kothsejre_: '🏔️ KOTH-sejre', allierede: '🤝 Allierede', rivaler: '⚔️ Rivaler', maxmedlemmer: '👥 Max medlemmer', max: '👥 Max medlemmer', id: '🆔 ID' };
+function teamSvar(tekst) {
   const d = String(tekst).split(';;');
   if (d[0] === 'TOP') {
     const hold = (d[1] || '').split('@@').filter(Boolean).map(x => { const [n, k, a] = x.split('='); return { n, k: Number(k) || 0, a: Number(a) || 0 }; })
@@ -2667,18 +2669,36 @@ function factionSvar(tekst) {
     const medalje = ['🥇', '🥈', '🥉'];
     const emb = new EmbedBuilder().setColor(0xff8c42).setAuthor({ name: 'HOPDOP · Teams' }).setTitle('🏆 Top 10 teams (efter kills)')
       .setDescription(hold.length ? hold.map((h, n) => `${medalje[n] || `**${n + 1}.**`} **${h.n}** · ${h.k} kills · ${h.a} medlemmer`).join('\n') : 'Der er ingen teams endnu.')
-      .setFooter({ text: 'Se ét team: /faction navn' });
+      .setFooter({ text: 'Se ét team: /team navn' });
     return { content: '', embeds: [emb] };
   }
-  if (d[0] !== 'OK') return { content: `❌ ${d[1] || 'Noget gik galt.'}`, embeds: [] };
-  const [, navn, antal, online, kills, liste, andre] = d;
+  if (d[0] === 'FEJL') return { content: `❌ ${d[1] || 'Noget gik galt.'}`, embeds: [] };
+  if (d[0] !== 'OK') return { content: /Ukendt Discord-kommando/i.test(d[0]) ? '❌ Serveren kender ikke `/team` endnu. Skriv `/sk reload DiscordBro` ingame (og tjek at den nye version v1.4 er lagt på serveren).' : `❌ Uventet svar fra serveren: ${d[0].slice(0, 200)}`, embeds: [] };
+  const [, navn, antal, online, kills, deaths, liste, andre] = d;
+  const k = Number(kills) || 0, dd = Number(deaths) || 0;
   const emb = new EmbedBuilder().setColor(0xff8c42).setAuthor({ name: 'HOPDOP · Team' }).setTitle(`🛡️ ${navn}`)
-    .addFields({ name: '👥 Medlemmer', value: `${antal}`, inline: true }, { name: '🟢 Online', value: `${online}`, inline: true }, { name: '⚔️ Kills i alt', value: `${kills}`, inline: true });
+    .addFields({ name: '👥 Medlemmer', value: `${antal}`, inline: true }, { name: '🟢 Online', value: `${online}`, inline: true }, { name: '\u200b', value: '\u200b', inline: true },
+      { name: '⚔️ Kills', value: `${k}`, inline: true }, { name: '💀 Deaths', value: `${dd}`, inline: true }, { name: '📈 K/D', value: (dd ? k / dd : k).toFixed(2), inline: true });
+  const felter = (andre || '').split('@@').filter(Boolean).map(f => { const [n, ...v] = f.split('='); return [n, v.join('=')]; });
+  if (felter.length) emb.addFields({ name: 'Detaljer', value: felter.map(([n, v]) => `${TEAM_FELTER[n.toLowerCase()] || `**${n.charAt(0).toUpperCase()}${n.slice(1)}**`}: ${v}`).join('\n').slice(0, 1000) });
   const navne = (liste || '').split('@@').filter(Boolean);
   if (navne.length) emb.addFields({ name: 'Medlemsliste', value: navne.join(', ').slice(0, 1000) });
-  const felter = (andre || '').split('@@').filter(Boolean).map(f => { const [k, ...v] = f.split('='); return `**${k}:** ${v.join('=')}`; });
-  if (felter.length) emb.addFields({ name: 'Detaljer', value: felter.join('\n').slice(0, 1000) });
   return { content: '', embeds: [emb] };
+}
+// Retter gamle dev-log-beskeder, hvor kommandoen hed /faction
+async function rettDevlogTeam() {
+  if (config.devlogTeamRettet) return;
+  try {
+    const kanal = await client.channels.fetch(config.kanaler.devlog).catch(() => null);
+    if (!kanal) return;
+    for (const m of (await kanal.messages.fetch({ limit: 50 })).values()) {
+      if (m.author.id !== client.user.id) continue;
+      const e = m.embeds[0];
+      if (!e || !/\/faction/.test(e.description || '')) continue;
+      await m.edit({ embeds: [EmbedBuilder.from(e).setDescription(e.description.replace(/\/faction/g, '/team'))] }).catch(() => {});
+    }
+    config.devlogTeamRettet = true; gemCfg();
+  } catch (e) { console.error('Ret devlog:', e.message); }
 }
 
 // ---------- AUTO-TIMEOUT: spam, flooding, gentagelser og CAPS ----------
@@ -2944,11 +2964,12 @@ client.once('clientReady', async () => {
   await opdaterGuide(guild).catch(e => console.error('Kunne ikke opdatere #bot-guide:', e.message));
   await opsaetAutoMod(guild).catch(e => console.error('AutoMod:', e.message));
   // Nye eller fjernede bot-kommandoer kommer automatisk i dev-loggen
-  { const navne = kommandoer.map(c => c.name), gamle = config.devlogKmd; config.devlogKmd = navne; gemCfg();
+  { const navne = kommandoer.map(c => c.name), gamle = config.devlogKmd?.map(n => n === 'faction' ? 'team' : n); config.devlogKmd = navne; gemCfg();
     if (gamle) {
       for (const n of navne.filter(x => !gamle.includes(x))) devlogDiscord(`⌨️ Ny kommando: \`/${n}\` · ${kommandoer.find(c => c.name === n).description}`, 'Discord-bot');
       for (const n of gamle.filter(x => !navne.includes(x))) devlogDiscord(`🗑️ Kommandoen \`/${n}\` er fjernet`, 'Discord-bot');
     } }
+  rettDevlogTeam();
   postDevlog(); setInterval(postDevlog, 60000);
   setInterval(postDiscordAendringer, 60000); setTimeout(postDiscordAendringer, 20000);
   tjekGit(); setInterval(tjekGit, 10 * 60000);
@@ -3067,12 +3088,12 @@ client.on('interactionCreate', async i => {
       if (i.commandName === 'unlink') return i.reply(await unlinkSvar(i.guild, i.user.id));
       if (i.commandName === 'ign') return i.reply(ignSvar(i));
       if (i.commandName === 'boosterfarve') return boosterFarve(i);
-      if (i.commandName === 'faction') {
+      if (i.commandName === 'team') {
         if (!botNoegle()) return i.reply({ content: 'BOT_NOEGLE mangler i .env.', flags: MessageFlags.Ephemeral });
         const fnavn = (i.options.getString('navn') || '').replace(/[\r\n]+/g, ' ').trim();
-        if (!fnavn) return tilServer(i, 'dc:factiontop', 'Top 10 teams', false, { fmt: factionSvar, log: false });
+        if (!fnavn) return tilServer(i, 'dc:teamtop', 'Top 10 teams', false, { fmt: teamSvar, log: false });
         if (!/^[\p{L}\p{N}_ .-]{1,32}$/u.test(fnavn)) return i.reply({ content: 'Det er ikke et gyldigt team-navn.', flags: MessageFlags.Ephemeral });
-        return tilServer(i, `dc:faction ${fnavn}`, `Team ${fnavn}`, false, { fmt: factionSvar, log: false });
+        return tilServer(i, `dc:team ${fnavn}`, `Team ${fnavn}`, false, { fmt: teamSvar, log: false });
       }
       if (i.commandName === 'top' || i.commandName === 'online') {
         await i.deferReply();

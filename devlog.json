@@ -63,7 +63,7 @@
     "punkter": [
       "🔗 `/link` giver nu også rollen **Forbundet**, og dit **Minecraft-navn bliver dit kaldenavn** på Discord automatisk",
       "🎮 `/ign` viser en spillers Minecraft-navn, eller hvem et Minecraft-navn er på Discord",
-      "🛡️ `/faction <navn>` viser et teams medlemmer, hvem der er online og teamets kills. Uden navn får du **top 10 teams**",
+      "🛡️ `/team <navn>` viser et teams medlemmer, hvem der er online og teamets kills. Uden navn får du **top 10 teams**",
       "🎨 `/boosterfarve` lader boosters vælge deres egen rollefarve",
       "🎪 **Automatiske events:** Botten starter selv events ingame og skriver dem i #events med ping til Events-rollen",
       "💰 Dobbelt og tredobbelt **kill-penge** i en periode, og ekstra **Beacon Drops** ind imellem",
@@ -79,7 +79,7 @@
       "📜 **Nyt regelsæt** med 30 regler fordelt på 6 kapitler, med tilladte og forbudte mods og en oversigt over straffe",
       "⌨️ `/regelsæt` viser reglerne direkte ingame",
       "💰 Nyt **kill-penge event**: i en periode giver alle kills dobbelt eller tredobbelt penge",
-      "🛡️ Teams kan slås op fra Discord med `/faction`",
+      "🛡️ Teams kan slås op fra Discord med `/team`",
       "🌐 **Hjemmesiden** har fået nyt design i solnedgangsfarver, der passer til det nye logo, og en ny side med hele regelsættet på hopdop.pages.dev/regler",
       "🖼️ Nyt HOPDOP-logo på hjemmesiden og i link-forhåndsvisninger"
     ]
