@@ -2707,6 +2707,8 @@ function ignSvar(i) {
 // ---------- /team ----------
 const TEAM_FELTER = { level: '⭐ Level', leder: '👑 Leder', leader: '👑 Leder', ejer: '👑 Leder', owner: '👑 Leder', dtr: '❤️ DTR', strikes: '⚠️ Strikes', koth: '🏔️ KOTH-sejre',
   kothsejre: '🏔️ KOTH-sejre', kothsejre_: '🏔️ KOTH-sejre', allierede: '🤝 Allierede', rivaler: '⚔️ Rivaler', maxmedlemmer: '👥 Max medlemmer', max: '👥 Max medlemmer', id: '🆔 ID' };
+// Grænser som i teammenuen ingame (Teams-pluginet)
+const TEAM_MAX = { level: 5, medlemmer: 4, allierede: 1, rivaler: 1, strikes: 3 };
 function teamSvar(tekst) {
   const d = String(tekst).split(';;');
   if (d[0] === 'TOP') {
@@ -2721,14 +2723,41 @@ function teamSvar(tekst) {
   if (d[0] === 'FEJL') return { content: `❌ ${d[1] || 'Noget gik galt.'}`, embeds: [] };
   if (d[0] !== 'OK') return { content: /Ukendt Discord-kommando/i.test(d[0]) ? '❌ Serveren kender ikke `/team` endnu. Skriv `/sk reload DiscordBro` ingame (og tjek at den nye version v1.4 er lagt på serveren).' : `❌ Uventet svar fra serveren: ${d[0].slice(0, 200)}`, embeds: [] };
   const [, navn, antal, online, kills, deaths, liste, andre] = d;
-  const k = Number(kills) || 0, dd = Number(deaths) || 0;
-  const emb = new EmbedBuilder().setColor(0xff8c42).setAuthor({ name: 'HOPDOP · Team' }).setTitle(`🛡️ ${navn}`)
-    .addFields({ name: '👥 Medlemmer', value: `${antal}`, inline: true }, { name: '🟢 Online', value: `${online}`, inline: true }, { name: '\u200b', value: '\u200b', inline: true },
-      { name: '⚔️ Kills', value: `${k}`, inline: true }, { name: '💀 Deaths', value: `${dd}`, inline: true }, { name: '📈 K/D', value: (dd ? k / dd : k).toFixed(2), inline: true });
-  const felter = (andre || '').split('@@').filter(Boolean).map(f => { const [n, ...v] = f.split('='); return [n, v.join('=')]; });
-  if (felter.length) emb.addFields({ name: 'Detaljer', value: felter.map(([n, v]) => `${TEAM_FELTER[n.toLowerCase()] || `**${n.charAt(0).toUpperCase()}${n.slice(1)}**`}: ${v}`).join('\n').slice(0, 1000) });
-  const navne = (liste || '').split('@@').filter(Boolean);
-  if (navne.length) emb.addFields({ name: 'Medlemsliste', value: navne.join(', ').slice(0, 1000) });
+  const f = {};
+  for (const x of (andre || '').split('@@').filter(Boolean)) { const [n, ...v] = x.split('='); f[n.toLowerCase()] = v.join('=').trim(); }
+  const tal = (v, standard = 0) => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : standard; };
+  const liste2 = v => String(v || '').replace(/^\[|\]$/g, '').split(',').map(x => x.trim()).filter(Boolean);
+  // Teamets egne tal (samme som i teammenuen ingame). Er de ikke sendt, bruges summen af medlemmerne.
+  const k = f.kills !== undefined ? tal(f.kills) : (Number(kills) || 0);
+  const dd = f.deaths !== undefined ? tal(f.deaths) : (Number(deaths) || 0);
+  const kd = (dd ? k / dd : k).toFixed(2);
+  const M = TEAM_MAX;
+  const lvl = Math.max(1, tal(f.level, 1));
+  const allierede = liste2(f.allierede), rivaler = liste2(f.rivaler);
+  const strikes = tal(f.strikes);
+  const bank = tal(f.bank).toLocaleString('da-DK', { maximumFractionDigits: 0 });
+  const stiftet = tal(f.oprettet);
+  const ts = stiftet > 1e12 ? Math.floor(stiftet / 1000) : stiftet > 1e9 ? Math.floor(stiftet) : 0;
+  const leder = f.leder || '';
+  const navne = (liste || '').split('@@').filter(Boolean).sort((a, b) => (b === leder) - (a === leder) || a.localeCompare(b));
+  const farve = strikes >= M.strikes ? 0xed4245 : 0xff8c42;
+  const emb = new EmbedBuilder().setColor(farve).setAuthor({ name: 'HOPDOP · Team' }).setTitle(`🛡️ ${navn}`)
+    .setDescription([leder ? `👑 Leder: **${leder}**` : '', ts ? `📅 Stiftet <t:${ts}:D> (<t:${ts}:R>)` : ''].filter(Boolean).join('\n') || null)
+    .addFields(
+      { name: '⭐ Level', value: `**${lvl}** / ${M.level}`, inline: true },
+      { name: '👥 Medlemmer', value: `**${antal}** / ${M.medlemmer}`, inline: true },
+      { name: '🟢 Online nu', value: `**${online}** af ${antal}`, inline: true },
+      { name: '⚔️ Kills', value: `**${k}**`, inline: true },
+      { name: '💀 Deaths', value: `**${dd}**`, inline: true },
+      { name: '📈 K/D', value: `**${kd}**`, inline: true },
+      { name: '🏔️ KOTH-sejre', value: `**${tal(f['koth-sejre'] ?? f.kothsejre)}**`, inline: true },
+      { name: '💰 Bank', value: `**${bank}** kr.`, inline: true },
+      { name: '⚠️ Strikes', value: `**${strikes}** / ${M.strikes}${strikes >= M.strikes ? ' 🚨' : ''}`, inline: true },
+      { name: `🤝 Allierede (${allierede.length}/${M.allierede})`, value: allierede.length ? allierede.join(', ') : 'Ingen', inline: true },
+      { name: `🥊 Rivaler (${rivaler.length}/${M.rivaler})`, value: rivaler.length ? rivaler.join(', ') : 'Ingen', inline: true },
+      { name: '\u200b', value: '\u200b', inline: true });
+  if (navne.length) emb.addFields({ name: `📋 Medlemmer (${navne.length})`, value: navne.map(n => `${n === leder ? '👑' : '▫️'} ${n}`).join('\n').slice(0, 1000) });
+  emb.setFooter({ text: 'Se top 10: /team uden navn' });
   return { content: '', embeds: [emb] };
 }
 // Retter gamle dev-log-beskeder, hvor kommandoen hed /faction
