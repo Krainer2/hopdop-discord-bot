@@ -98,5 +98,20 @@
     "fjernet": [
       "Den gamle punktopstilling uden opdeling"
     ]
+  },
+  {
+    "id": "2026-11-11-test-ny-stil-2",
+    "kategori": "Discord-bot",
+    "intro": "Ny test af dev-loggen med vores egne tegn. Skriv gerne, hvis noget ser mærkeligt ud.",
+    "tilfoejet": [
+      "Egne tegn i dev-loggen: plus for nyt",
+      "Botten kører nu døgnet rundt, så kommandoer og rollen **Spiller** altid virker"
+    ],
+    "aendret": [
+      "Dev-loggen er delt op i det, vi har tilføjet, ændret og fjernet"
+    ],
+    "fjernet": [
+      "De første runde orbs i dev-loggen"
+    ]
   }
 ]
