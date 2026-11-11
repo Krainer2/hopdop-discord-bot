@@ -568,16 +568,13 @@ async function tjekGit() {
 const erOffentlig = c => c && !String(c.topic || '').startsWith('ticket:') && c.permissionOverwrites?.cache?.get(config.roller['Spiller'])?.allow?.has(P.ViewChannel);
 client.on('channelCreate', c => { if (erOffentlig(c)) devlogDiscord(`📁 Ny kanal: <#${c.id}>`); });
 client.on('channelDelete', c => { if (erOffentlig(c)) devlogDiscord(`🗑️ Kanalen **#${c.name}** er fjernet`); });
-client.on('roleCreate', r => { if (!r.managed) devlogDiscord(`🏷️ Ny rolle: <@&${r.id}>`); });
 client.on('channelUpdate', (gl, ny) => { if (gl.name !== ny.name && erOffentlig(ny)) devlogDiscord(`✏️ Kanalen **#${gl.name}** hedder nu <#${ny.id}>`); });
-client.on('roleUpdate', (gl, ny) => { if (!ny.managed && gl.name !== ny.name) devlogDiscord(`✏️ Rollen **${gl.name}** hedder nu **${ny.name}**`); });
 client.on('guildUpdate', (gl, ny) => {
   if (gl.name !== ny.name) devlogDiscord(`🏷️ Serveren hedder nu **${ny.name}**`);
   if (gl.icon !== ny.icon) devlogDiscord('🖼️ Discorden har fået nyt server-ikon');
   if (gl.banner !== ny.banner && ny.banner) devlogDiscord('🎨 Discorden har fået nyt banner');
   if (ny.premiumTier > gl.premiumTier) devlogDiscord(`🚀 HOPDOP er nået til **Discord-niveau ${ny.premiumTier}** – nye fordele er låst op!`);
 });
-client.on('roleDelete', r => { if (!r.managed) devlogDiscord(`🗑️ Rollen **${r.name}** er fjernet`); });
 
 // Svar til /link og knappen i #link (kun brugeren selv kan se det)
 function linkSvar(discordId) {
@@ -1496,7 +1493,6 @@ async function opsaetGoonsNu(guild) {
       .catch(e => { console.error('Goons-rolle:', e.message); return null; });
     if (!r) return;
     console.log('Goons-rollen er oprettet.');
-    devlogDiscord(`😈 Ny rolle: <@&${r.id}> (lilla navnefarve, egen gruppe i medlemslisten og adgang til Admin-tale)`);
   } else if (r.color !== GOONS_FARVE || !r.hoist || r.permissions.bitfield !== 0n) {
     await r.edit({ color: GOONS_FARVE, hoist: true, permissions: [], mentionable: false }).catch(e => console.error('Goons-rolle:', e.message));
   }
@@ -2196,7 +2192,7 @@ async function synkRollerFil(tving = false) {
     const guild = await client.guilds.fetch(process.env.GUILD_ID);
     await guild.roles.fetch();
     const findEllerLav = async (navn, opts) => guild.roles.cache.find(r => r.name === navn)
-      || await guild.roles.create({ name: navn, permissions: [], mentionable: false, ...opts, reason: 'HOPDOP roller.json' }).then(r => { devlogDiscord(`🏷️ Ny rolle: <@&${r.id}>`); return r; });
+      || await guild.roles.create({ name: navn, permissions: [], mentionable: false, ...opts, reason: 'HOPDOP roller.json' });
     // 1) Opret roller og skillelinjer, og saml rækkefølgen
     const raekke = [];
     for (const g of rollerData.grupper) {
@@ -2998,7 +2994,6 @@ client.once('clientReady', async () => {
   { const navne = kommandoer.map(c => c.name), gamle = config.devlogKmd?.map(n => n === 'faction' ? 'team' : n); config.devlogKmd = navne; gemCfg();
     if (gamle) {
       for (const n of navne.filter(x => !gamle.includes(x))) devlogDiscord(`⌨️ Ny kommando: \`/${n}\` · ${kommandoer.find(c => c.name === n).description}`, 'Discord-bot');
-      for (const n of gamle.filter(x => !navne.includes(x))) devlogDiscord(`🗑️ Kommandoen \`/${n}\` er fjernet`, 'Discord-bot');
     } }
   maalForbrug(); setInterval(maalForbrug, 5 * 60000);
   rettDevlogTeam();
