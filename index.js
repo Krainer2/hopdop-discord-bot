@@ -2679,6 +2679,7 @@ async function saetLinkProfil(guild, discordId, mcNavn) {
   if (sp && !m.roles.cache.has(sp)) await m.roles.add(sp, 'Forbundet med Minecraft = adgang til serveren').catch(e => console.error('Spiller-rolle:', e.message));
   const r = await linkRolle(guild);
   if (r && !m.roles.cache.has(r.id)) await m.roles.add(r, 'Forbundet med Minecraft').catch(e => console.error('Forbundet-rolle:', e.message));
+  if (m.nickname !== mcNavn && !m.manageable) console.error(`Kaldenavn: kan ikke ændre ${m.user.tag} (ejer eller rolle over botten, eller botten mangler Administrer kaldenavne)`);
   if (m.nickname !== mcNavn && m.manageable) await m.setNickname(mcNavn, 'Minecraft-navn fra /link').catch(e => console.error('Kaldenavn:', e.message));
 }
 async function fjernLinkProfil(guild, discordId, mcNavn) {
@@ -3396,6 +3397,7 @@ client.on('interactionCreate', async i => {
       // Adgang kræver en forbundet Minecraft-konto: først koden herfra, så /discord <kode> ingame, og så får man rollen automatisk
       if (!linkAf(i.user.id)) return i.reply({ ...linkSvar(i.user.id), content: '📜 Tak, fordi du accepterer reglerne! For at få adgang skal du først forbinde din Minecraft-konto:' });
       await i.member.roles.add(rolle);
+      saetLinkProfil(i.guild, i.user.id, linkAf(i.user.id).n).catch(() => {});
       return i.reply({ content: '✅ Velkommen! Du har nu adgang til serveren.', flags: MessageFlags.Ephemeral });
     }
 
