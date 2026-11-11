@@ -3075,6 +3075,9 @@ async function opdaterIpKanal(guild) {
 
 // Velkomstbesked
 client.on('guildMemberAdd', async member => {
+  // Genkendt spiller: er kontoen allerede forbundet, får man navn og roller tilbage med det samme
+  const kendt = linkAf(member.id);
+  if (kendt) return saetLinkProfil(member.guild, member.id, kendt.n).catch(e => console.error('Gensæt profil:', e.message));
   const ch = member.guild.channels.cache.get(config.kanaler.velkommen);
   if (!ch) return;
   ch.send({ content: `${member}`, embeds: [new EmbedBuilder().setColor(FARVE)
