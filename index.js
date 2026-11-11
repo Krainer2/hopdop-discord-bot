@@ -1101,6 +1101,20 @@ const GRUNDE = {
 };
 const MC_NAVN = /^[A-Za-z0-9_]{1,16}$/;
 
+// ---------- BOTTENS "OM MIG" (profilen under botten i Discord) ----------
+const BOT_OM_MIG = `Officiel discordbot for HOPDOP.
+🌐 ${WEB}
+💬 https://discord.gg/53fAaeMGqP`;
+async function saetBotOmMig() {
+  config.grafik = config.grafik || {};
+  if (config.grafik.omMig === BOT_OM_MIG) return;
+  try {
+    await client.application.edit({ description: BOT_OM_MIG });
+    config.grafik.omMig = BOT_OM_MIG; fs.writeFileSync('config.json', JSON.stringify(config, null, 2));
+    console.log('Bottens "Om mig" er sat.');
+  } catch (e) { console.error('Om mig:', e.message); }
+}
+
 // ---------- BOT-LOGO ----------
 async function saetBotLogo() {
   const V = 5; // 5 = nye billeder med figurerne
@@ -3004,6 +3018,7 @@ client.once('clientReady', async () => {
   tjekEvents(); setInterval(tjekEvents, 60000);
   await opdaterBoostHoved(guild);
   await saetBotLogo();
+  await saetBotOmMig();
   await opdaterLiveChatAdgang(guild).catch(e => console.error('#live-chat:', e.message));
   await opsaetLogs(guild).catch(e => console.error('Logs:', e.message));
   await botLogKanal().catch(e => console.error('#bot-logs:', e.message));
