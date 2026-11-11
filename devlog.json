@@ -83,5 +83,20 @@
       "🌐 **Hjemmesiden** har fået nyt design i solnedgangsfarver, der passer til det nye logo, og en ny side med hele regelsættet på hopdop.pages.dev/regler",
       "🖼️ Nyt HOPDOP-logo på hjemmesiden og i link-forhåndsvisninger"
     ]
+  },
+  {
+    "id": "2026-11-11-test-ny-stil",
+    "kategori": "Discord-bot",
+    "intro": "Test af den nye dev-log. Fra nu af skrives opdateringerne op på denne måde, så det er nemt at se, hvad der er nyt.",
+    "tilfoejet": [
+      "Ny stil på dev-loggen med grøn, gul og rød orb",
+      "Botten kører nu døgnet rundt, så kommandoer og rollen **Spiller** altid virker"
+    ],
+    "aendret": [
+      "Dev-loggen er delt op i det, vi har tilføjet, ændret og fjernet"
+    ],
+    "fjernet": [
+      "Den gamle punktopstilling uden opdeling"
+    ]
   }
 ]
