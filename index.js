@@ -2599,6 +2599,9 @@ const kommandoer = [
     .setDescription(n === 'alts' ? 'Find konti, der har spillet fra samme IP som spilleren' : `${n === 'unban' ? 'Fjern ban' : 'Fjern mute'} fra en spiller`)
     .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setMaxLength(16))
     .setDefaultMemberPermissions(P.Administrator)),
+  new SlashCommandBuilder().setName('altip').setDescription('Kun Ejer: vis en spillers alts og de IP\'er (fra SuperAwesome), de har brugt')
+    .addStringOption(o => o.setName('spiller').setDescription('Minecraft-navn').setRequired(true).setMaxLength(16))
+    .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('genstart').setDescription('Genstart Minecraft-serveren (med nedtælling)')
     .addStringOption(o => o.setName('handling').setDescription('Hvad skal ske?').setRequired(true)
       .addChoices({ name: 'Start genstart', value: 'start' }, { name: 'Annuller genstart', value: 'annuller' }, { name: 'Status', value: 'status' }))
@@ -2758,6 +2761,21 @@ function teamSvar(tekst) {
       { name: '\u200b', value: '\u200b', inline: true });
   if (navne.length) emb.addFields({ name: `📋 Medlemmer (${navne.length})`, value: navne.map(n => `${n === leder ? '👑' : '▫️'} ${n}`).join('\n').slice(0, 1000) });
   emb.setFooter({ text: 'Se top 10: /team uden navn' });
+  return { content: '', embeds: [emb] };
+}
+// Svar fra serveren til /altip: OK;;navn;;ip=konto,konto@@ip=konto
+function altIpSvar(tekst) {
+  const d = String(tekst).split(';;');
+  if (d[0] === 'FEJL') return { content: `❌ ${d[1] || 'Noget gik galt.'}`, embeds: [] };
+  if (d[0] !== 'OK') return { content: /Ukendt Discord-kommando/i.test(d[0]) ? '❌ Serveren kender ikke /altip endnu. Læg den nye DiscordBro.sk på serveren og skriv `/sk reload DiscordBro`.' : `❌ Uventet svar fra serveren: ${d[0].slice(0, 200)}`, embeds: [] };
+  const navn = d[1];
+  const ips = (d[2] || '').split('@@').filter(Boolean).map(x => { const [ip, ...k] = x.split('='); return { ip, konti: k.join('=').split(',').map(n => n.trim()).filter(Boolean) }; });
+  const alle = [...new Set(ips.flatMap(x => x.konti))].filter(n => n.toLowerCase() !== navn.toLowerCase());
+  const fed = n => (n.toLowerCase() === navn.toLowerCase() ? `**${n}**` : n);
+  const emb = new EmbedBuilder().setColor(alle.length ? 0xed4245 : 0x57f287).setAuthor({ name: 'HOPDOP · Kun Ejer' }).setTitle(`🌐 IP-tjek: ${navn}`)
+    .setDescription(alle.length ? `⚠️ **${alle.length}** mulig${alle.length === 1 ? '' : 'e'} alt${alle.length === 1 ? '' : 's'}: ${alle.join(', ')}` : '✅ Ingen andre konti fundet på de IP\'er.')
+    .addFields(...ips.slice(0, 20).map(x => ({ name: `🔌 \`${x.ip}\``, value: x.konti.length ? x.konti.map(fed).join(', ').slice(0, 1000) : 'Ingen', inline: false })))
+    .setFooter({ text: 'Kun synlig for dig · IP\'erne er dem, SuperAwesome sender til serveren, ikke spillernes rigtige · Samme IP er ikke bevis' });
   return { content: '', embeds: [emb] };
 }
 // Retter gamle dev-log-beskeder, hvor kommandoen hed /faction
@@ -3249,6 +3267,14 @@ client.on('interactionCreate', async i => {
       }
       if (i.commandName === 'ip') {
         return i.reply({ embeds: [new EmbedBuilder().setColor(FARVE).setTitle('🌐 Serverens IP').setDescription(`\`${SERVER_IP}\`\n\n⚠️ ${IP_NOTE}`)] });
+      }
+      // ---------- /altip: kun Ejer (kan ikke gives videre med /adgang) ----------
+      if (i.commandName === 'altip') {
+        if (!erEjer(i.member)) return i.reply({ content: '🔒 Kun Ejer kan bruge /altip.', flags: MessageFlags.Ephemeral });
+        if (!botNoegle()) return i.reply({ content: 'BOT_NOEGLE mangler i .env.', flags: MessageFlags.Ephemeral });
+        const sp = i.options.getString('spiller');
+        if (!MC_NAVN.test(sp)) return i.reply({ content: 'Det er ikke et gyldigt Minecraft-navn.', flags: MessageFlags.Ephemeral });
+        return tilServer(i, `dc:altip ${sp}`, `IP-tjek af **${sp}**`, false, { fmt: altIpSvar });
       }
       // ---------- SERVER-KOMMANDOER (bro til Minecraft) ----------
       if (i.commandName in ADGANG_KOMMANDOER || i.commandName === 'adgang') {
