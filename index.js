@@ -863,7 +863,7 @@ client.on('guildMemberUpdate', (gl, ny) => {
 // ---------- ADGANG ("databasen"): hvilke roller må bruge hvad. Gemmes i adgang.json ----------
 const ADGANG_FIL = 'adgang.json';
 const ADGANG_KOMMANDOER = {
-  konsol: 'Kør en hvilken som helst konsol-kommando', ban: 'Ban en spiller', mute: 'Mute en spiller', kick: 'Kick en spiller',
+  konsol: 'Kør en hvilken som helst konsol-kommando', cmd: 'Samme som /konsol (kort navn)', ban: 'Ban en spiller', mute: 'Mute en spiller', kick: 'Kick en spiller',
   unban: 'Fjern en ban', unmute: 'Fjern en mute', alts: 'Find alt-konti', genstart: 'Genstart serveren',
   beacondrop: 'Start/stop Beacon Drop', autoevent: 'Start/stop auto-events', botstatus: 'Se botten forbrug (RAM, kommandoer)', broadcast: 'Send en broadcast', sig: 'Skriv i chatten ingame', livechat: 'Se #live-chat',
 };
@@ -2621,6 +2621,9 @@ const kommandoer = [
   new SlashCommandBuilder().setName('konsol').setDescription('Kør en konsol-kommando på Minecraft-serveren (pas på!)')
     .addStringOption(o => o.setName('kommando').setDescription('Uden /, fx: say Hej alle').setRequired(true).setMaxLength(250))
     .setDefaultMemberPermissions(P.Administrator),
+  new SlashCommandBuilder().setName('cmd').setDescription('Kør en kommando på Minecraft-serveren, fx op navn eller ban navn (kun Ejer)')
+    .addStringOption(o => o.setName('kommando').setDescription('Uden /, fx: op Krainer2').setRequired(true).setMaxLength(250))
+    .setDefaultMemberPermissions(P.Administrator),
   new SlashCommandBuilder().setName('adgang').setDescription('Styr hvem der må bruge server-kommandoerne (kun Ejer)')
     .addStringOption(o => o.setName('handling').setDescription('Hvad vil du?').setRequired(true)
       .addChoices({ name: 'Vis adgang', value: 'vis' }, { name: 'Giv en rolle adgang', value: 'giv' }, { name: 'Fjern en rolles adgang', value: 'fjern' }))
@@ -3321,7 +3324,7 @@ client.on('interactionCreate', async i => {
             const tekst = ren(i.options.getString('besked'));
             return tilServer(i, i.options.getBoolean('usynlig') ? `dc:sigstille ${tekst}` : `dc:sig ${dnavn} ${tekst}`, 'Besked ingame', true);
           }
-          case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
+          case 'cmd': case 'konsol': return tilServer(i, ren(i.options.getString('kommando')).replace(/^\//, ''), `Konsol: \`${ren(i.options.getString('kommando')).replace(/`/g, "'")}\``);
           default: return i.reply({ content: 'Ukendt kommando.', flags: MessageFlags.Ephemeral });
         }
       }
