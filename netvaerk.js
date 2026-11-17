@@ -12,6 +12,8 @@ const FIL = 'servere.json';
 const hent = () => { try { return JSON.parse(fs.readFileSync(FIL, 'utf8')); } catch { return {}; } };
 const data = hent();
 const gem = () => fs.writeFileSync(FIL, JSON.stringify(data, null, 2));
+// Lille logfil (Wispbyte-konsollen kan ikke altid læses): netvaerk-log.txt
+const spor = t => { try { fs.appendFileSync('netvaerk-log.txt', `${new Date().toISOString()} ${t}\n`); } catch { /* ingen log */ } };
 
 // ---------- SKABELONER ----------
 const TYPER = {
@@ -256,6 +258,7 @@ async function saetVelkomst(g, d, rapport) {
 const SKABELON_V = 5;
 async function byg(g, d, type) {
   const rapport = [];
+  spor(`byg start ${g.name} (${type})`);
   for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
   gem();
   await g.channels.fetch();
@@ -274,8 +277,10 @@ async function byg(g, d, type) {
     gem();
   }
   // Rækkefølge på kategorierne
+  spor(`${g.name}: kanaler ok`);
   await g.channels.setPositions(grupper.map((gr, i) => d.kanaler[`kat_${gr.id}`] && { channel: d.kanaler[`kat_${gr.id}`], position: i }).filter(Boolean)).catch(() => {});
   await saetCommunity(g, d, rapport);
+  spor(`${g.name}: community ok`);
   // Forummer med galleri (kræver Community)
   for (const [k, opts] of forummer) {
     await sikrKanal(g, d, k.n, { ...opts, type: ChannelType.GuildForum, defaultForumLayout: 2 /* galleri */, defaultSortOrder: 1,
@@ -285,7 +290,9 @@ async function byg(g, d, type) {
   }
   gem();
   await saetVelkomst(g, d, rapport);
+  spor(`${g.name}: forummer+velkomst ok`);
   await ordnRoller(g, d, type, rapport);
+  spor(`${g.name}: roller ok. ${rapport.join(' | ')}`);
   d.skabelonV = SKABELON_V; gem();
   return rapport;
 }
@@ -419,8 +426,10 @@ function start(client, onAlle, HOVED_ID, typer) {
     .catch(e => console.error(`Netværk: kunne ikke sætte kommandoer på ${g.name}:`, e.message));
 
   onAlle('clientReady', async () => {
+    spor(`klar: ${client.user?.tag} med ${andre().length} servere`);
     for (const g of andre()) {
       await registrer(g);
+      spor(`kommandoer ok ${g.name}`);
       // Ny skabelon (fx forummer, rettigheder): opdatér servere, der allerede er sat op
       const d = info(g);
       if (d?.type && d.sat && d.skabelonV !== SKABELON_V) {
