@@ -243,6 +243,7 @@ async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
       const mangler = opts.availableTags.filter(t => !k.availableTags.some(x => x.name === t.name));
       if (mangler.length || k.availableTags.some(x => x.moderated))
         aendr.availableTags = [...k.availableTags.map(x => ({ id: x.id, name: x.name, emoji: x.emoji, moderated: false })), ...mangler].slice(0, 20);
+      if (aendr.availableTags) { await k.edit({ availableTags: aendr.availableTags, reason: '/setup' }).catch(e => rapport.push(`Tags ${opts.name}: ${e.message}`)); delete aendr.availableTags; }
       if (!k.flags?.has?.(ChannelFlags.RequireTag)) aendr.flags = ChannelFlags.RequireTag;
     }
     if (Object.keys(aendr).length) await k.edit({ ...aendr, reason: '/setup' }).catch(e => rapport.push(`${opts.name}: ${e.message}`));
@@ -276,7 +277,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 9;
+const SKABELON_V = 10;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
