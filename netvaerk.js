@@ -6,7 +6,7 @@
 // Data for hver server gemmes i servere.json (lokal fil, uploades ikke til GitHub).
 const fs = require('fs');
 const { ChannelType, PermissionFlagsBits: P, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  SlashCommandBuilder, MessageFlags, AttachmentBuilder } = require('discord.js');
+  SlashCommandBuilder, MessageFlags, AttachmentBuilder, PermissionsBitField } = require('discord.js');
 
 const FIL = 'servere.json';
 const hent = () => { try { return JSON.parse(fs.readFileSync(FIL, 'utf8')); } catch { return {}; } };
@@ -156,7 +156,8 @@ async function ordnRoller(g, d, type, rapport) {
   if (bots) {
     d.roller.Bots = bots.id;
     if (!mig.roles.cache.has(bots.id)) await mig.roles.add(bots).catch(() => {});
-    for (const m of (await g.members.fetch().catch(() => new Map())).values()) if (m.user.bot && !m.roles.cache.has(bots.id)) await m.roles.add(bots).catch(() => {});
+    // (andre bots i cachen får også rollen – ingen fuld medlemsliste-hentning, den bliver rate-limited)
+    for (const m of g.members.cache.values()) if (m.user.bot && !m.roles.cache.has(bots.id)) await m.roles.add(bots).catch(() => {});
   }
   // Rækkefølge (kun roller under bottens egen rolle kan flyttes)
   const top = mig.roles.highest.position;
@@ -192,6 +193,11 @@ function rettigheder(g, d, k, staffKat) {
   return ow;
 }
 
+// Er kanalens rettigheder allerede som ønsket? (så sparer vi kald til Discord og undgår rate limits)
+function sammeRet(k, ow) {
+  const nu = k.permissionOverwrites?.cache; if (!nu || nu.size !== ow.length) return false;
+  return ow.every(o => { const x = nu.get(o.id); return x && x.allow.bitfield === PermissionsBitField.resolve(o.allow || []) && x.deny.bitfield === PermissionsBitField.resolve(o.deny || []); });
+}
 // Finder eller opretter en kanal, og retter navn, emne, cooldown og rettigheder, så de altid passer til skabelonen
 async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
   let k = d.kanaler[noegle] && await g.channels.fetch(d.kanaler[noegle]).catch(() => null);
@@ -217,7 +223,7 @@ async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
     if (opts.rateLimitPerUser !== undefined && 'rateLimitPerUser' in k && k.rateLimitPerUser !== opts.rateLimitPerUser) aendr.rateLimitPerUser = opts.rateLimitPerUser;
     if (k.type === ChannelType.GuildForum && opts.defaultForumLayout !== undefined && k.defaultForumLayout !== opts.defaultForumLayout) aendr.defaultForumLayout = opts.defaultForumLayout;
     if (Object.keys(aendr).length) await k.edit({ ...aendr, reason: '/setup' }).catch(e => rapport.push(`${opts.name}: ${e.message}`));
-    if (opts.permissionOverwrites) await k.permissionOverwrites.set(opts.permissionOverwrites, '/setup').catch(e => rapport.push(`Rettigheder ${opts.name}: ${e.message}`));
+    if (opts.permissionOverwrites && !sammeRet(k, opts.permissionOverwrites)) await k.permissionOverwrites.set(opts.permissionOverwrites, '/setup').catch(e => rapport.push(`Rettigheder ${opts.name}: ${e.message}`));
   }
   d.kanaler[noegle] = k.id;
   return k;
@@ -247,7 +253,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 4;
+const SKABELON_V = 5;
 async function byg(g, d, type) {
   const rapport = [];
   for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
