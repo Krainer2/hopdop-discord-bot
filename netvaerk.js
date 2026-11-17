@@ -166,8 +166,15 @@ async function ordnRoller(g, d, type, rapport) {
   const raekke = [...alle.map(r => g.roles.cache.get(d.roller[r.navn])), bots].filter(Boolean);
   const n = raekke.length;
   if (raekke.every(r => r.position < top) && top - n >= 1) {
-    await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: top - 1 - i })))
-      .catch(e => rapport.push(`Rolle-rækkefølge: ${e.message} (bot=${mig.roles.highest.name}@${top}; ${[...g.roles.cache.values()].sort((a, b) => b.position - a.position).map(x => `${x.name}@${x.position}`).join(', ')})`));
+    const ok = await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: top - 1 - i }))).then(() => true).catch(() => false);
+    if (!ok) {
+      // Plan B: flyt én rolle ad gangen (kun dem, der står forkert), nedefra og op
+      for (let i = n - 1; i >= 0; i--) {
+        await g.roles.fetch();
+        const rolle = g.roles.cache.get(raekke[i].id), under = raekke[i + 1] && g.roles.cache.get(raekke[i + 1].id);
+        if (under && rolle.position <= under.position) await rolle.setPosition(under.position + 1).catch(e => rapport.push(`Rolle ${rolle.name}: ${e.message}`));
+      }
+    }
   } else rapport.push(`(bot@${top}, ${n} roller) ` + 'Rolle-rækkefølge: flyt bottens rolle øverst under Serverindstillinger → Roller, og kør /setup igen.');
 }
 
@@ -255,7 +262,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 5;
+const SKABELON_V = 6;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -411,6 +418,10 @@ const lavKommandoer = typer => [
     .setDefaultMemberPermissions(P.Administrator)
     .addStringOption(o => o.setName('ip').setDescription('Minecraft-serverens IP (skriv "ingen" for at fjerne den)').setMaxLength(80))
     .addStringOption(o => o.setName('navn').setDescription('Navnet der vises i bottens beskeder').setMaxLength(40)),
+  new SlashCommandBuilder().setName('grafik').setDescription('Sæt logo og banner på serveren og på botten (kun admin)')
+    .setDefaultMemberPermissions(P.Administrator)
+    .addAttachmentOption(o => o.setName('logo').setDescription('Logo (firkantet billede): serverikon og bottens profilbillede'))
+    .addAttachmentOption(o => o.setName('banner').setDescription('Banner (bredt billede): bottens profilbanner og serverbanner')),
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
   new SlashCommandBuilder().setName('say').setDescription('Lad botten skrive en besked (kun staff)')
     .setDefaultMemberPermissions(P.ManageMessages)
@@ -488,6 +499,29 @@ function start(client, onAlle, HOVED_ID, typer) {
           await opdaterIp(i.guild, d);
           await log(i.guild, `⚙️ ${i.user} ændrede indstillinger${ip ? ` · IP: \`${d.ip || 'ingen'}\`` : ''}${navn ? ` · navn: **${d.navn}**` : ''}`);
           return svar(i, '✅ Gemt!');
+        }
+        if (i.commandName === 'grafik') {
+          if (!i.member.permissions.has(P.Administrator)) return svar(i, '❌ Kun admins kan bruge /grafik.');
+          const logo = i.options.getAttachment('logo'), banner = i.options.getAttachment('banner');
+          if (!logo && !banner) return svar(i, 'Vedhæft mindst ét billede: `logo` og/eller `banner`.');
+          await i.deferReply({ flags: MessageFlags.Ephemeral });
+          const hentBillede = async a => Buffer.from(await (await fetch(a.url)).arrayBuffer());
+          const ud = [];
+          const g = i.guild, bot = i.client.user;
+          if (logo) {
+            const b = await hentBillede(logo);
+            await g.setIcon(b, '/grafik').then(() => ud.push('✅ Serverikon')).catch(e => ud.push(`❌ Serverikon: ${e.message}`));
+            await bot.setAvatar(b).then(() => ud.push('✅ Bottens profilbillede')).catch(e => ud.push(`❌ Profilbillede: ${e.message}`));
+          }
+          if (banner) {
+            const b = await hentBillede(banner);
+            await bot.setBanner(b).then(() => ud.push('✅ Bottens profilbanner')).catch(e => ud.push(`❌ Profilbanner: ${e.message}`));
+            if (g.premiumTier >= 2) await g.setBanner(b, '/grafik').then(() => ud.push('✅ Serverbanner')).catch(e => ud.push(`❌ Serverbanner: ${e.message}`));
+            else ud.push('ℹ️ Serverbanner kræver boost-niveau 2. Det sættes ikke endnu.');
+            if (g.premiumTier >= 1) await g.setSplash(b, '/grafik').then(() => ud.push('✅ Invite-baggrund')).catch(() => {});
+          }
+          await log(g, `🖼️ ${i.user} opdaterede grafikken:\n${ud.join('\n')}`);
+          return svar(i, ud.join('\n'));
         }
         if (i.commandName === 'ip') {
           return i.reply({ embeds: [new EmbedBuilder().setColor(farve(i.guild)).setTitle('🌐 Server-IP')
