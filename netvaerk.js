@@ -163,8 +163,9 @@ async function ordnRoller(g, d, type, rapport) {
   const raekke = [...alle.map(r => g.roles.cache.get(d.roller[r.navn])), bots].filter(Boolean);
   const n = raekke.length;
   if (raekke.every(r => r.position < top) && top - n >= 1) {
-    await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: top - 1 - i }))).catch(e => rapport.push(`Rolle-rækkefølge: ${e.message}`));
-  } else rapport.push('Rolle-rækkefølge: flyt bottens rolle øverst under Serverindstillinger → Roller, og kør /setup igen.');
+    await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: top - 1 - i })))
+      .catch(e => rapport.push(`Rolle-rækkefølge: ${e.message} (bot=${mig.roles.highest.name}@${top}; ${[...g.roles.cache.values()].sort((a, b) => b.position - a.position).map(x => `${x.name}@${x.position}`).join(', ')})`));
+  } else rapport.push(`(bot@${top}, ${n} roller) ` + 'Rolle-rækkefølge: flyt bottens rolle øverst under Serverindstillinger → Roller, og kør /setup igen.');
 }
 
 // ---------- KANAL-RETTIGHEDER (som HopDop HCF) ----------
@@ -246,7 +247,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 3;
+const SKABELON_V = 4;
 async function byg(g, d, type) {
   const rapport = [];
   for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
