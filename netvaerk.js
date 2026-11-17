@@ -786,6 +786,11 @@ async function saetShopGrafik(shop) {
   data._shopbot = data._shopbot || {};
   if (data._shopbot.grafikV === SHOP_GRAFIK.v) return;
   const hent = async u => { const r = await fetch(u); if (!r.ok) throw new Error(`download ${r.status}`); return Buffer.from(await r.arrayBuffer()); };
+  // Servernavn (virker også, selv om billederne ikke kan hentes)
+  for (const g of shop.guilds.cache.values()) {
+    if (g.name !== SHOP_GRAFIK.servernavn) await g.setName(SHOP_GRAFIK.servernavn, 'Servernavn').then(() => spor('servernavn sat')).catch(e => spor(`servernavn: ${e.message}`));
+    if (data[g.id] && data[g.id].navn !== SHOP_GRAFIK.visningsnavn) { data[g.id].navn = SHOP_GRAFIK.visningsnavn; gem(); } // navnet i bottens beskeder (uden emoji)
+  }
   try {
     const logo = await hent(SHOP_GRAFIK.logo), banner = await hent(SHOP_GRAFIK.banner);
     const ud = [];
@@ -796,8 +801,6 @@ async function saetShopGrafik(shop) {
     // App-ikon og app-banner i Developer Portal (+ "Om mig")
     await shop.application.edit({ icon: logo, coverImage: banner, description: SHOP_OM_MIG }).then(() => ud.push('app-ikon og app-banner')).catch(e => ud.push(`app-ikon FEJL ${e.message}`));
     for (const g of shop.guilds.cache.values()) {
-      if (g.name !== SHOP_GRAFIK.servernavn) await g.setName(SHOP_GRAFIK.servernavn, 'Servernavn').then(() => ud.push('servernavn')).catch(e => ud.push(`servernavn FEJL ${e.message}`));
-      if (data[g.id] && data[g.id].navn !== SHOP_GRAFIK.visningsnavn) { data[g.id].navn = SHOP_GRAFIK.visningsnavn; gem(); } // navnet i bottens beskeder (uden emoji)
       await g.setIcon(logo, 'Logo').then(() => ud.push(`ikon ${g.name}`)).catch(e => ud.push(`ikon FEJL ${e.message}`));
       if (g.premiumTier >= 2) await g.setBanner(banner, 'Banner').catch(() => {});
       if (g.premiumTier >= 1) await g.setSplash(banner, 'Banner').catch(() => {});
