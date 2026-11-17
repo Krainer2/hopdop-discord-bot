@@ -779,7 +779,7 @@ function start(client, onAlle, HOVED_ID, typer) {
 
 // ---------- GEDERNE BUTIK BOT (separat bot) ----------
 // Logo og banner (sættes én gang pr. version: serverikon, bottens profilbillede og -banner)
-const SHOP_GRAFIK = { v: 3,
+const SHOP_GRAFIK = { v: 4, servernavn: '🐐 | Gederne Shop', visningsnavn: 'Gederne Shop',
   logo: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g1.png',
   banner: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g2.jpg' };
 async function saetShopGrafik(shop) {
@@ -796,6 +796,8 @@ async function saetShopGrafik(shop) {
     // App-ikon og app-banner i Developer Portal (+ "Om mig")
     await shop.application.edit({ icon: logo, coverImage: banner, description: SHOP_OM_MIG }).then(() => ud.push('app-ikon og app-banner')).catch(e => ud.push(`app-ikon FEJL ${e.message}`));
     for (const g of shop.guilds.cache.values()) {
+      if (g.name !== SHOP_GRAFIK.servernavn) await g.setName(SHOP_GRAFIK.servernavn, 'Servernavn').then(() => ud.push('servernavn')).catch(e => ud.push(`servernavn FEJL ${e.message}`));
+      if (data[g.id] && data[g.id].navn !== SHOP_GRAFIK.visningsnavn) { data[g.id].navn = SHOP_GRAFIK.visningsnavn; gem(); } // navnet i bottens beskeder (uden emoji)
       await g.setIcon(logo, 'Logo').then(() => ud.push(`ikon ${g.name}`)).catch(e => ud.push(`ikon FEJL ${e.message}`));
       if (g.premiumTier >= 2) await g.setBanner(banner, 'Banner').catch(() => {});
       if (g.premiumTier >= 1) await g.setSplash(banner, 'Banner').catch(() => {});
