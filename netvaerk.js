@@ -6,7 +6,7 @@
 // Data for hver server gemmes i servere.json (lokal fil, uploades ikke til GitHub).
 const fs = require('fs');
 const { ChannelType, PermissionFlagsBits: P, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  SlashCommandBuilder, MessageFlags, AttachmentBuilder, PermissionsBitField } = require('discord.js');
+  SlashCommandBuilder, MessageFlags, AttachmentBuilder, PermissionsBitField, ChannelFlags } = require('discord.js');
 
 const FIL = 'servere.json';
 const hent = () => { try { return JSON.parse(fs.readFileSync(FIL, 'utf8')); } catch { return {}; } };
@@ -40,6 +40,10 @@ const ROLLER = {
 };
 // las = kun læse: kun staff poster/skriver (som på HopDop HCF). reager = medlemmer må reagere. skriv = roller, der må skrive alligevel.
 // rolle = kun den rolle (+ staff) kan se kanalen. ikke = springes over for de typer. forum = forum-kanal (galleri). slow = cooldown i sek.
+// Tags i shop-forummerne virker som filtre (max 20 pr. forum). Hvert opslag skal have mindst ét.
+const TAG_TYPE = [['Skript', '📜'], ['Plugin', '🧩'], ['Setup', '🏗️']];
+const TAG_FILTRE = [['Prison', '🔒'], ['KitPvP', '⚔️'], ['HCF', '🏰'], ['Minigames', '🎮'], ['Blandede', '🧺'],
+  ['Spiller', '🙋'], ['Staff', '🛡️'], ['Økonomi', '💰'], ['Menuer', '📋'], ['Events', '🎉']];
 const KANALER = {
   start: [
     { id: 'info', kat: '[ 📌 | INFORMATION ]', kanaler: [
@@ -73,9 +77,9 @@ const KANALER = {
     { n: 'halloffame', navn: '🏆┃hall-of-fame', las: true, reager: true },
   ] }],
   shop: [{ id: 'shop', kat: '[ 🛒 | SHOP ]', kanaler: [
-    { n: 'produkter', navn: '📦┃produkter', las: true, reager: true, alle: true, forum: { tags: [['Skript', '📜'], ['Plugin', '🧩'], ['Setup', '🏗️'], ['Gratis', '🎁'], ['Nyt', '🆕'], ['Udsalg', '🏷️']], reaktion: '🔥' },
+    { n: 'produkter', navn: '📦┃produkter', las: true, reager: true, alle: true, forum: { tags: [...TAG_TYPE, ...TAG_FILTRE, ['Gratis', '🎁'], ['Udsalg', '🏷️'], ['Nyt', '🆕'], ['Populær', '⭐']], reaktion: '🔥' },
       topic: 'Alle vores produkter. Ét opslag pr. produkt med billeder, pris og beskrivelse. Køb via en ticket i #opret-ticket.' },
-    { n: 'showcase', navn: '🎬┃showcase', las: true, reager: true, alle: true, forum: { tags: [['Video', '🎥'], ['Billeder', '🖼️'], ['Opdatering', '🆕'], ['Custom', '✍️']], reaktion: '🔥' },
+    { n: 'showcase', navn: '🎬┃showcase', las: true, reager: true, alle: true, forum: { tags: [['Video', '🎥'], ['Billeder', '🖼️'], ...TAG_FILTRE, ['Custom', '✍️'], ['Opdatering', '🆕']], reaktion: '🔥' },
       topic: 'Se vores scripts i aktion. Videoer og billeder af hvad vi har lavet.' },
     { n: 'priser', navn: '💰┃priser', las: true, reager: true, alle: true, topic: 'Prisoversigt.' },
     { n: 'opdateringer', navn: '🆕┃opdateringer', las: true, reager: true, topic: 'Nye versioner og rettelser af vores produkter.' },
@@ -233,6 +237,12 @@ async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
     if (opts.topic !== undefined && 'topic' in k && (k.topic || '') !== (opts.topic || '')) aendr.topic = opts.topic;
     if (opts.rateLimitPerUser !== undefined && 'rateLimitPerUser' in k && (k.rateLimitPerUser || 0) !== (opts.rateLimitPerUser || 0)) aendr.rateLimitPerUser = opts.rateLimitPerUser;
     if (k.type === ChannelType.GuildForum && opts.defaultForumLayout !== undefined && k.defaultForumLayout !== opts.defaultForumLayout) aendr.defaultForumLayout = opts.defaultForumLayout;
+    if (k.type === ChannelType.GuildForum && opts.availableTags) {
+      // Nye tags tilføjes (gamle beholdes, så opslag ikke mister deres tags)
+      const mangler = opts.availableTags.filter(t => !k.availableTags.some(x => x.name === t.name));
+      if (mangler.length) aendr.availableTags = [...k.availableTags, ...mangler].slice(0, 20);
+      if (!k.flags?.has?.(ChannelFlags.RequireTag)) aendr.flags = ChannelFlags.RequireTag;
+    }
     if (Object.keys(aendr).length) await k.edit({ ...aendr, reason: '/setup' }).catch(e => rapport.push(`${opts.name}: ${e.message}`));
     if (opts.permissionOverwrites && !sammeRet(k, opts.permissionOverwrites)) await k.permissionOverwrites.set(opts.permissionOverwrites, '/setup').catch(e => rapport.push(`Rettigheder ${opts.name}: ${e.message}`));
   }
@@ -264,7 +274,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 7;
+const SKABELON_V = 8;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -292,7 +302,7 @@ async function byg(g, d, type) {
   spor(`${g.name}: community ok`);
   // Forummer med galleri (kræver Community)
   for (const [k, opts] of forummer) {
-    await sikrKanal(g, d, k.n, { ...opts, type: ChannelType.GuildForum, defaultForumLayout: 2 /* galleri */, defaultSortOrder: 1,
+    await sikrKanal(g, d, k.n, { ...opts, type: ChannelType.GuildForum, defaultForumLayout: 2 /* galleri */, defaultSortOrder: 1, flags: ChannelFlags.RequireTag,
       availableTags: k.forum.tags.map(([name, emoji]) => ({ name, emoji: { id: null, name: emoji }, moderated: true })),
       defaultReactionEmoji: { id: null, name: k.forum.reaktion } }, rapport)
       || await sikrKanal(g, d, k.n, opts, rapport); // uden Community: almindelig kanal i stedet
