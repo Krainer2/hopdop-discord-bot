@@ -94,6 +94,10 @@ const KANALER = {
   ] }],
   andet: [],
   slut: [
+    { id: 'partner', kat: '[ 🤝 | PARTNERE ]', kanaler: [
+      { n: 'partnere', navn: '🤝┃samarbejdspartnere', las: true, reager: true, topic: 'Vores samarbejdspartnere. Vil du være partner? Opret en ticket og vælg Samarbejde.' },
+      { n: 'reklame', navn: '📣┃reklame', slow: 21600, topic: 'Reklamér for din Discord-server eller dit projekt. Ét opslag hver 6. time. Ingen NSFW, scam eller pings.' },
+    ] },
     { id: 'support', kat: '[ 🎫 | SUPPORT ]', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true, topic: 'Tryk på en knap for at oprette en ticket.' }] },
     { id: 'voice', kat: '[ 🔊 | SNAK ]', kanaler: [
       { n: 'voice1', navn: '💬┃Hyggesnak 1', voice: true },
@@ -107,11 +111,11 @@ const KANALER = {
   ],
 };
 const TICKETS = {
-  prison: [['support', 'Support', '🛠️'], ['vagt', 'Vagt-ansøgning', '👮'], ['anmeld', 'Anmeld spiller', '🚨']],
-  kitpvp: [['support', 'Support', '🛠️'], ['ansog', 'Staff-ansøgning', '📝'], ['anmeld', 'Anmeld spiller', '🚨']],
-  uhc: [['support', 'Support', '🛠️'], ['host', 'Host-ansøgning', '🎙️'], ['anmeld', 'Anmeld spiller', '🚨']],
-  shop: [['koeb', 'Køb et script', '🛒'], ['bestil', 'Bestil custom script', '✍️'], ['support', 'Support', '🛠️']],
-  andet: [['support', 'Support', '🛠️'], ['ansog', 'Staff-ansøgning', '📝'], ['anmeld', 'Anmeld spiller', '🚨']],
+  prison: [['support', 'Support', '🛠️'], ['vagt', 'Vagt-ansøgning', '👮'], ['anmeld', 'Anmeld spiller', '🚨'], ['partner', 'Samarbejde', '🤝']],
+  kitpvp: [['support', 'Support', '🛠️'], ['ansog', 'Staff-ansøgning', '📝'], ['anmeld', 'Anmeld spiller', '🚨'], ['partner', 'Samarbejde', '🤝']],
+  uhc: [['support', 'Support', '🛠️'], ['host', 'Host-ansøgning', '🎙️'], ['anmeld', 'Anmeld spiller', '🚨'], ['partner', 'Samarbejde', '🤝']],
+  shop: [['koeb', 'Køb et script', '🛒'], ['bestil', 'Bestil custom script', '✍️'], ['support', 'Support', '🛠️'], ['partner', 'Samarbejde', '🤝']],
+  andet: [['support', 'Support', '🛠️'], ['ansog', 'Staff-ansøgning', '📝'], ['anmeld', 'Anmeld spiller', '🚨'], ['partner', 'Samarbejde', '🤝']],
 };
 const TICKET_TEKST = {
   shop: 'Vil du købe et script, bestille et custom script, eller har du brug for hjælp?\nVælg en knap nedenfor. Så får du din egen kanal, hvor vi kan snakke sammen.',
@@ -202,7 +206,8 @@ function rettigheder(g, d, k, staffKat) {
   if (k.aaben) {
     const skriv = k.aaben === 'skriv';
     ow[0] = { id: g.roles.everyone.id, allow: [P.ViewChannel, P.ReadMessageHistory, ...(skriv ? [P.SendMessages, P.AddReactions] : [])], deny: [P.CreatePublicThreads, P.CreatePrivateThreads, P.MentionEveryone, ...(skriv ? [] : [P.SendMessages, P.AddReactions])] };
-    if (spiller) ow.push({ id: spiller, deny: [P.ViewChannel] }); // verificerede ser dem ikke
+    // verificerede (Spiller, Kunde, Vagt ...) ser dem ikke. Staff kan stadig se dem for at hjælpe nye.
+    for (const [navn, id] of Object.entries(d.roller)) if (!STAFF_ROLLER.includes(navn) && navn !== 'Bots' && id) ow.push({ id, deny: [P.ViewChannel] });
     for (const s of staff) ow.push({ id: s, allow: staffRet });
     return ow;
   }
@@ -349,7 +354,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 12;
+const SKABELON_V = 13;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -370,9 +375,23 @@ async function byg(g, d, type) {
     }
     gem();
   }
+  // Discords gamle standardkanaler (#generel, Generel og deres kategorier) fra da serveren blev lavet
+  await g.channels.fetch();
+  const vores = new Set(Object.values(d.kanaler));
+  const STANDARD_KAT = ['Tekstkanaler', 'Talekanaler', 'Text Channels', 'Voice Channels'];
+  for (const c of [...g.channels.cache.values()]) {
+    if (vores.has(c.id) || ![ChannelType.GuildText, ChannelType.GuildVoice].includes(c.type) || !/^gener(e|a)l$/i.test(c.name)) continue;
+    if (c.parent && !STANDARD_KAT.includes(c.parent.name)) continue;
+    await c.delete('Gammel standardkanal').then(() => spor(`slettet ${c.name} på ${g.name}`)).catch(e => rapport.push(`Slet ${c.name}: ${e.message}`));
+  }
+  for (const c of [...g.channels.cache.values()]) {
+    if (c.type === ChannelType.GuildCategory && STANDARD_KAT.includes(c.name) && !vores.has(c.id) && !g.channels.cache.some(x => x.parentId === c.id))
+      await c.delete('Tom standardkategori').catch(e => rapport.push(`Slet ${c.name}: ${e.message}`));
+  }
   // Rækkefølge på kategorierne
   spor(`${g.name}: kanaler ok`);
-  await g.channels.setPositions(grupper.map((gr, i) => d.kanaler[`kat_${gr.id}`] && { channel: d.kanaler[`kat_${gr.id}`], position: i }).filter(Boolean)).catch(() => {});
+  await g.channels.setPositions([...(d.kanaler.stat_kat ? [{ channel: d.kanaler.stat_kat, position: 0 }] : []),
+    ...grupper.map((gr, i) => d.kanaler[`kat_${gr.id}`] && { channel: d.kanaler[`kat_${gr.id}`], position: i + 1 }).filter(Boolean)]).catch(() => {});
   await saetCommunity(g, d, rapport);
   spor(`${g.name}: community ok`);
   // Forummer med galleri (kræver Community)
@@ -403,13 +422,13 @@ async function setup(i, type, navn) {
   const rapport = await byg(g, d, type);
   await postPaneler(g, d);
   d.sat = new Date().toISOString(); gem();
-  await log(g, `✅ **/setup ${type}** kørt af ${i.user}.${rapport.length ? `\n⚠️ ${rapport.join('\n⚠️ ')}` : ''}`);
+  await log(g, '🛠️ Serveren er sat op', [`${i.user} kørte **/setup** (${t.navn}).`, '', ...rapportLinjer(rapport)], rapport.length ? 0xf59e0b : 0x22c55e);
   return i.editReply([
     `✅ **${navnPaa(g)}** er sat op som **${t.navn}**-server!`, '',
     `• Roller: ${[...ROLLER.faelles, ...ROLLER[type]].map(r => `<@&${d.roller[r.navn]}>`).join(' ')}`,
     `• Regler med verificerings-knap: <#${d.kanaler.regler}>`,
     `• Ticket-panel: <#${d.kanaler.ticket}>`,
-    ...(rapport.length ? ['', `⚠️ **Det gik ikke helt:**`, ...rapport.slice(0, 8).map(x => `• ${x}`)] : []), '',
+    ...(rapport.length ? ['', ...rapportLinjer(rapport).slice(0, 8)] : []), '',
     '**Husk:**',
     '**1.** Giv dig selv rollen **Ejer**.',
     ...(type === 'shop' ? [] : ['**2.** Sæt Minecraft-IP\'en, når serveren er klar: `/indstil ip:<ip>`']),
@@ -458,10 +477,71 @@ async function opdaterIp(g, d) {
       : '⏳ Serveren er ikke åben endnu. IP\'en kommer her, så snart den er klar!')] });
 }
 
-async function log(g, tekst) {
+// Invite-links til serverne (botten finder selv ud af, hvilken server et link hører til)
+const INVITE_KODER = ['EaDhda9TjA'];
+async function findInvites(client) {
+  for (const kode of INVITE_KODER) {
+    const inv = await client.fetchInvite?.(kode)?.catch(() => null);
+    const d = inv?.guild && data[inv.guild.id];
+    if (d && d.invite !== `https://discord.gg/${kode}`) { d.invite = `https://discord.gg/${kode}`; gem(); spor(`invite ${kode} -> ${inv.guild.name}`); }
+  }
+}
+// Bot-log: korte, forståelige beskeder (tekniske detaljer gemmes kun i netvaerk-log.txt)
+async function log(g, titel, linjer = [], farveKode = 0x64748b) {
   const d = info(g);
   const k = d?.kanaler?.botlog && await g.channels.fetch(d.kanaler.botlog).catch(() => null);
-  if (k) await k.send({ content: tekst, allowedMentions: { parse: [] } }).catch(() => {});
+  if (!k) return;
+  const e = new EmbedBuilder().setColor(farveKode).setTitle(titel).setTimestamp();
+  if (linjer.length) e.setDescription(linjer.join('\n').slice(0, 4000));
+  await k.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(() => {});
+}
+// Oversætter tekniske fejl til noget, man kan forstå og gøre noget ved
+function forklar(x) {
+  spor(`problem: ${x}`);
+  const hvad = x.split(':')[0];
+  if (/Missing Permissions|Missing Access/i.test(x)) return `**${hvad}**: botten mangler rettigheder. Træk bottens rolle helt op øverst under *Serverindstillinger → Roller*.`;
+  if (/rate limit/i.test(x)) return `**${hvad}**: Discord bad botten vente lidt. Det bliver prøvet igen ved næste genstart.`;
+  if (/^Onboarding/.test(x)) return '**Onboarding**: spørgsmålene for nye medlemmer kunne ikke gemmes. Knappen i #regler virker stadig.';
+  if (/^Regelskærm/.test(x)) return '**Regelskærm**: Discords regel-accept kunne ikke slås til. Knappen i #regler virker stadig.';
+  if (/^Velkomstskærm/.test(x)) return '**Velkomstskærm**: kunne ikke sættes (det er kun pynt, alt andet virker).';
+  if (/^Community/.test(x)) return '**Community**: kunne ikke slås til. Forummer og onboarding kræver Community.';
+  return `**${hvad}**: gik ikke helt (${x.slice(hvad.length + 1, hvad.length + 90).trim()}).`;
+}
+const rapportLinjer = rapport => rapport.length ? ['⚠️ **Det skal du kigge på:**', ...rapport.map(x => `• ${forklar(x)}`)] : ['✅ Alt gik som det skulle.'];
+
+// ---------- STATS (som på HopDop HCF, bare uden IP) ----------
+async function opdaterStats(g, d) {
+  if (!d?.sat) return;
+  const staff = STAFF_ROLLER.map(r => d.roller[r]).filter(Boolean);
+  const ow = [{ id: g.roles.everyone.id, allow: [P.ViewChannel], deny: [P.Connect] }, ...staff.map(id => ({ id, allow: [P.ViewChannel], deny: [P.Connect] }))];
+  let kat = d.kanaler.stat_kat && await g.channels.fetch(d.kanaler.stat_kat).catch(() => null);
+  if (!kat) {
+    kat = await g.channels.create({ name: '[ 📊 | STATS ]', type: ChannelType.GuildCategory, position: 0, permissionOverwrites: ow }).catch(e => { spor(`stats ${g.name}: ${e.message}`); return null; });
+    if (!kat) return;
+    d.kanaler.stat_kat = kat.id; gem();
+    await kat.setPosition(0).catch(() => {});
+  }
+  await g.members.fetch().catch(() => {});
+  const antalMed = navn => d.roller[navn] ? (g.roles.cache.get(d.roller[navn])?.members.size ?? 0) : 0;
+  const linjer = [['stat_med', `👥┃Medlemmer: ${g.memberCount}`]];
+  if (d.type === 'shop') {
+    linjer.push(['stat_kunder', `🛒┃Kunder: ${antalMed('Kunde')}`]);
+    const forum = d.kanaler.produkter && await g.channels.fetch(d.kanaler.produkter).catch(() => null);
+    let produkter = 0;
+    if (forum?.threads) {
+      const aktive = await forum.threads.fetchActive().catch(() => null);
+      const arkiv = await forum.threads.fetchArchived({ limit: 100 }).catch(() => null);
+      produkter = (aktive?.threads.filter(t => t.parentId === forum.id).size || 0) + (arkiv?.threads.size || 0);
+    }
+    linjer.push(['stat_produkter', `📦┃Produkter: ${produkter}`]);
+  } else if (d.type === 'prison') linjer.push(['stat_vagter', `👮┃Vagter: ${antalMed('Vagt')}`]);
+  for (const [n, navn] of linjer) {
+    let c = d.kanaler[n] && await g.channels.fetch(d.kanaler[n]).catch(() => null);
+    if (!c) {
+      c = await g.channels.create({ name: navn, type: ChannelType.GuildVoice, parent: kat.id, permissionOverwrites: ow }).catch(e => { spor(`stats ${navn}: ${e.message}`); return null; });
+      if (c) { d.kanaler[n] = c.id; gem(); }
+    } else if (c.name !== navn) await c.setName(navn).catch(() => {}); // Discord tillader 2 omdøbninger pr. 10 min
+  }
 }
 
 // ---------- TICKETS ----------
@@ -520,6 +600,7 @@ const lavKommandoer = typer => [
     .setDefaultMemberPermissions(P.Administrator)
     .addAttachmentOption(o => o.setName('logo').setDescription('Logo (firkantet billede): serverikon og bottens profilbillede'))
     .addAttachmentOption(o => o.setName('banner').setDescription('Banner (bredt billede): bottens profilbanner og serverbanner')),
+  new SlashCommandBuilder().setName('invite').setDescription('Få invite-linket til serveren, så du kan invitere dine venner'),
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
   new SlashCommandBuilder().setName('say').setDescription('Lad botten skrive en besked (kun staff)')
     .setDefaultMemberPermissions(P.ManageMessages)
@@ -536,6 +617,9 @@ function start(client, onAlle, HOVED_ID, typer) {
 
   onAlle('clientReady', async () => {
     spor(`klar: ${client.user?.tag} med ${andre().length} servere`);
+    await findInvites(client);
+    const stats = () => { for (const g of andre()) opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); };
+    setTimeout(stats, 60000).unref?.(); setInterval(stats, 10 * 60000).unref?.();
     for (const g of andre()) {
       await registrer(g);
       spor(`kommandoer ok ${g.name}`);
@@ -545,7 +629,7 @@ function start(client, onAlle, HOVED_ID, typer) {
         const rapport = await byg(g, d, d.type).catch(e => [e.message]);
         await postPaneler(g, d).catch(() => {});
         console.log(`Netværk: ${g.name} er opdateret til skabelon ${SKABELON_V}.${rapport.length ? ' Problemer: ' + rapport.join(' | ') : ''}`);
-        await log(g, `🔄 Serveren er opdateret til den nye skabelon (forummer, rettigheder og medlemsliste).${rapport.length ? `\n⚠️ ${rapport.join('\n⚠️ ')}` : ''}`);
+        await log(g, '🔄 Botten har opdateret serveren', ['Kanaler, rettigheder, roller og opsætning er bragt op til den nyeste version.', '', ...rapportLinjer(rapport)], rapport.length ? 0xf59e0b : 0x22c55e);
       }
     }
   });
@@ -600,7 +684,7 @@ function start(client, onAlle, HOVED_ID, typer) {
           gem();
           await i.deferReply({ flags: MessageFlags.Ephemeral });
           await opdaterIp(i.guild, d);
-          await log(i.guild, `⚙️ ${i.user} ændrede indstillinger${ip ? ` · IP: \`${d.ip || 'ingen'}\`` : ''}${navn ? ` · navn: **${d.navn}**` : ''}`);
+          await log(i.guild, '⚙️ Indstillinger ændret', [`Af ${i.user}`, ...(ip ? [`IP: \`${d.ip || 'ingen'}\``] : []), ...(navn ? [`Navn: **${d.navn}**`] : [])]);
           return svar(i, '✅ Gemt!');
         }
         if (i.commandName === 'grafik') {
@@ -623,8 +707,12 @@ function start(client, onAlle, HOVED_ID, typer) {
             else ud.push('ℹ️ Serverbanner kræver boost-niveau 2. Det sættes ikke endnu.');
             if (g.premiumTier >= 1) await g.setSplash(b, '/grafik').then(() => ud.push('✅ Invite-baggrund')).catch(() => {});
           }
-          await log(g, `🖼️ ${i.user} opdaterede grafikken:\n${ud.join('\n')}`);
+          await log(g, '🖼️ Grafik opdateret', [`Af ${i.user}`, ...ud]);
           return svar(i, ud.join('\n'));
+        }
+        if (i.commandName === 'invite') {
+          return i.reply({ embeds: [new EmbedBuilder().setColor(farve(i.guild)).setTitle(`📨 Invitér dine venner til ${navnPaa(i.guild)}`)
+            .setDescription(d?.invite ? `Del dette link:\n**${d.invite}**` : 'Der er ikke sat et invite-link op endnu.')] });
         }
         if (i.commandName === 'ip') {
           return i.reply({ embeds: [new EmbedBuilder().setColor(farve(i.guild)).setTitle('🌐 Server-IP')
@@ -633,7 +721,7 @@ function start(client, onAlle, HOVED_ID, typer) {
         if (i.commandName === 'say') {
           if (!d || !erStaff(i.member, d)) return svar(i, '❌ Kun staff kan bruge /say.');
           await i.channel.send({ content: i.options.getString('tekst'), allowedMentions: { parse: [] } });
-          await log(i.guild, `💬 ${i.user} brugte /say i ${i.channel}.`);
+          await log(i.guild, '💬 /say brugt', [`${i.user} fik botten til at skrive i ${i.channel}.`]);
           return svar(i, '✅ Sendt.');
         }
         return;
@@ -659,7 +747,7 @@ function start(client, onAlle, HOVED_ID, typer) {
 
 // ---------- GEDERNE BUTIK BOT (separat bot) ----------
 // Logo og banner (sættes én gang pr. version: serverikon, bottens profilbillede og -banner)
-const SHOP_GRAFIK = { v: 2,
+const SHOP_GRAFIK = { v: 3,
   logo: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g1.png',
   banner: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g2.jpg' };
 async function saetShopGrafik(shop) {
@@ -684,7 +772,7 @@ async function saetShopGrafik(shop) {
     if (!ud.some(x => x.includes('FEJL'))) { data._shopbot.grafikV = SHOP_GRAFIK.v; data._shopbot.profilV = 1; gem(); }
   } catch (e) { spor(`shop-grafik fejl: ${e.message}`); }
 }
-const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.';
+const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.\n\n📨 Join: https://discord.gg/EaDhda9TjA';
 function startShopBot() {
   const { Client, GatewayIntentBits, ActivityType, OAuth2Scopes } = require('discord.js');
   const shop = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
