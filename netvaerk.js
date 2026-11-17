@@ -351,7 +351,7 @@ async function saetOnboarding(g, d, rapport) {
   }
   gem();
   const synlig = id => id && g.channels.cache.get(id)?.permissionsFor(g.roles.everyone)?.has(P.ViewChannel);
-  const standard = Object.values(d.kanaler).filter(synlig).filter(id => g.channels.cache.get(id).type !== ChannelType.GuildCategory);
+  const standard = Object.values(d.kanaler).filter(synlig).filter(id => [ChannelType.GuildText, ChannelType.GuildForum, ChannelType.GuildAnnouncement].includes(g.channels.cache.get(id).type));
   await g.client.rest.put(`/guilds/${g.id}/onboarding`, { body: { enabled: true, mode: 0, default_channel_ids: standard, prompts } })
     .catch(e => rapport.push(`Onboarding: ${e.message} ${JSON.stringify(e.rawError?.errors || '').slice(0, 250)}`));
 }
@@ -364,7 +364,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 14;
+const SKABELON_V = 15;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
