@@ -16,6 +16,7 @@ const TYPER = {
   prison: { navn: 'Prison', farve: 0xf97316, emoji: '🔒' },
   kitpvp: { navn: 'KitPvP', farve: 0xef4444, emoji: '⚔️' },
   uhc: { navn: 'UHC', farve: 0xeab308, emoji: '🍎' },
+  shop: { navn: 'Shop', farve: 0x10b981, emoji: '🛒' },
   andet: { navn: 'Server', farve: 0x22c55e, emoji: '🎮' },
 };
 const STAFF_ROLLER = ['Ejer', 'Admin', 'Mod', 'Hjælper'];
@@ -30,9 +31,10 @@ const ROLLER = {
   prison: [{ navn: 'Vagt', farve: 0x1d4ed8, hoist: true }],
   kitpvp: [{ navn: 'Event', farve: 0xa855f7, hoist: false }],
   uhc: [{ navn: 'Host', farve: 0xeab308, hoist: true }],
+  shop: [{ navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
   andet: [],
 };
-// las = kun læse (spillere kan ikke skrive). rolle = kun den rolle (+ staff) kan se kanalen.
+// las = kun læse (spillere kan ikke skrive). rolle = kun den rolle (+ staff) kan se kanalen. ikke = springes over for de typer.
 const KANALER = {
   start: [
     { kat: '📌 INFO', kanaler: [
@@ -40,7 +42,7 @@ const KANALER = {
       { n: 'velkommen', navn: '👋┃velkommen', las: true },
       { n: 'nyheder', navn: '📢┃nyheder', las: true },
       { n: 'devlog', navn: '🛠️┃dev-log', las: true },
-      { n: 'serverip', navn: '🌐┃server-ip', las: true },
+      { n: 'serverip', navn: '🌐┃server-ip', las: true, ikke: ['shop'] },
     ] },
     { kat: '💬 COMMUNITY', kanaler: [
       { n: 'chat', navn: '💬┃chat' },
@@ -65,6 +67,14 @@ const KANALER = {
     { n: 'teamsoeg', navn: '🤝┃team-søgning' },
     { n: 'halloffame', navn: '🏆┃hall-of-fame', las: true },
   ] }],
+  shop: [{ kat: '🛒 SHOP', kanaler: [
+    { n: 'produkter', navn: '📦┃produkter', las: true },
+    { n: 'showcase', navn: '🎬┃showcase', las: true },
+    { n: 'priser', navn: '💰┃priser', las: true },
+    { n: 'opdateringer', navn: '🆕┃opdateringer', las: true },
+    { n: 'anmeldelser', navn: '⭐┃anmeldelser' },
+    { n: 'kundesupport', navn: '🛠️┃kunde-support', rolle: 'Kunde' },
+  ] }],
   andet: [],
   slut: [
     { kat: '🎫 SUPPORT', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true }] },
@@ -83,7 +93,12 @@ const TICKETS = {
   prison: [['support', 'Support', '🛠️'], ['vagt', 'Vagt-ansøgning', '👮'], ['anmeld', 'Anmeld spiller', '🚨']],
   kitpvp: [['support', 'Support', '🛠️'], ['ansog', 'Staff-ansøgning', '📝'], ['anmeld', 'Anmeld spiller', '🚨']],
   uhc: [['support', 'Support', '🛠️'], ['host', 'Host-ansøgning', '🎙️'], ['anmeld', 'Anmeld spiller', '🚨']],
+  shop: [['koeb', 'Køb et script', '🛒'], ['bestil', 'Bestil custom script', '✍️'], ['support', 'Support', '🛠️']],
   andet: [['support', 'Support', '🛠️'], ['ansog', 'Staff-ansøgning', '📝'], ['anmeld', 'Anmeld spiller', '🚨']],
+};
+const TICKET_TEKST = {
+  shop: 'Vil du købe et script, bestille et custom script, eller har du brug for hjælp?\nVælg en knap nedenfor. Så får du din egen kanal, hvor vi kan snakke sammen.',
+  standard: 'Brug for hjælp, vil du søge, eller skal du anmelde en spiller?\nVælg en knap nedenfor. Så får du din egen kanal med staff.',
 };
 const REGLER = [
   '**1.** Vis respekt. Ingen racisme, trusler eller hetz.',
@@ -151,7 +166,7 @@ async function setup(i, type, navn) {
     const katNoegle = `kat_${gr.kat.replace(/[^a-zæøå]/gi, '').toLowerCase()}`;
     const kat = await sikrKanal(g, d, katNoegle, { name: gr.kat, type: ChannelType.GuildCategory, position: nr,
       permissionOverwrites: gr.staff ? rettigheder(g, d, {}, true) : [{ id: g.roles.everyone.id, deny: [] }] });
-    for (const k of gr.kanaler) {
+    for (const k of gr.kanaler.filter(k => !k.ikke?.includes(type))) {
       await sikrKanal(g, d, k.n, { name: k.navn, type: k.voice ? ChannelType.GuildVoice : ChannelType.GuildText, parent: kat.id,
         permissionOverwrites: rettigheder(g, d, k, gr.staff) });
     }
@@ -168,8 +183,8 @@ async function setup(i, type, navn) {
     `• Ticket-panel: <#${d.kanaler.ticket}>`, '',
     '**Husk:**',
     '**1.** Giv dig selv rollen **Ejer**.',
-    '**2.** Sæt Minecraft-IP\'en, når serveren er klar: `/indstil ip:<ip>`',
-    '**3.** Kør bare `/setup` igen, hvis noget mangler. Botten genbruger det, der allerede findes.',
+    ...(type === 'shop' ? [] : ['**2.** Sæt Minecraft-IP\'en, når serveren er klar: `/indstil ip:<ip>`']),
+    `**${type === 'shop' ? 2 : 3}.** Kør bare \`/setup\` igen, hvis noget mangler. Botten genbruger det, der allerede findes.`,
   ].join('\n'));
 }
 
@@ -189,7 +204,7 @@ async function postPaneler(g, d) {
   const ticket = await g.channels.fetch(d.kanaler.ticket).catch(() => null);
   if (ticket) await sendEllerRet(ticket, {
     embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('🎫 Opret en ticket')
-      .setDescription('Brug for hjælp, vil du søge, eller skal du anmelde en spiller?\nVælg en knap nedenfor. Så får du din egen kanal med staff.')],
+      .setDescription(TICKET_TEKST[d.type] || TICKET_TEKST.standard)],
     components: [new ActionRowBuilder().addComponents(...TICKETS[d.type].map(([id, label, emoji]) =>
       new ButtonBuilder().setCustomId(`nv_tk_${id}`).setLabel(label).setEmoji(emoji).setStyle(id === 'anmeld' ? ButtonStyle.Danger : ButtonStyle.Primary)))],
   });
@@ -232,7 +247,7 @@ async function aabnTicket(i, slags) {
   });
   await kanal.send({ content: `${i.user}`, embeds: [new EmbedBuilder().setColor(farve(g)).setAuthor({ name: navnPaa(g) })
     .setTitle(`${valg[2]} ${valg[1]}`)
-    .setDescription('Tak for din ticket! Skriv så meget som muligt om din sag, så svarer staff hurtigst muligt.\nSkriv også dit **Minecraft-navn**.')],
+    .setDescription(d.type === 'shop' ? 'Tak for din ticket! Skriv hvilket script du er interesseret i, eller hvad du har brug for, så svarer vi hurtigst muligt.' : 'Tak for din ticket! Skriv så meget som muligt om din sag, så svarer staff hurtigst muligt.\nSkriv også dit **Minecraft-navn**.')],
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('nv_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))] });
   return i.editReply(`✅ Din ticket er oprettet: ${kanal}`);
 }

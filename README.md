@@ -13,7 +13,7 @@ Discord-bot til Hopdop (Minecraft 1.8.9 HCF/KitPvP). Lavet i Node.js med discord
 ## Flere Discord-servere (Prison, KitPvP, UHC ...)
 Samme bot kan være på flere servere. `index.js` styrer **kun** HopDop (`GUILD_ID`), og `netvaerk.js` styrer alle de andre.
 1. Invitér botten på den nye server (Developer Portal → OAuth2 → URL Generator: `bot` + `applications.commands`, rettighed **Administrator**).
-2. Skriv `/setup type:<prison|kitpvp|uhc|andet> navn:<fx HopDop Prison>` på den nye server.
+2. Skriv `/setup type:<prison|kitpvp|uhc|shop|andet> navn:<fx HopDop Prison>` på den nye server.
    Botten laver roller, kanaler, regler med knap-verificering, ticket-panel og staff-kanaler.
 3. Når Minecraft-serveren er klar: `/indstil ip:<ip>`.
 Kør `/setup` igen, hvis noget mangler. Den genbruger det, der findes. Data gemmes i `servere.json` (uploades ikke).
