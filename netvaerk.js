@@ -239,8 +239,10 @@ async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
     if (k.type === ChannelType.GuildForum && opts.defaultForumLayout !== undefined && k.defaultForumLayout !== opts.defaultForumLayout) aendr.defaultForumLayout = opts.defaultForumLayout;
     if (k.type === ChannelType.GuildForum && opts.availableTags) {
       // Nye tags tilføjes (gamle beholdes, så opslag ikke mister deres tags)
+      // (kun staff kan lave opslag, så tags behøver ikke være "kun moderatorer" - og Discord kræver mindst ét frit tag)
       const mangler = opts.availableTags.filter(t => !k.availableTags.some(x => x.name === t.name));
-      if (mangler.length) aendr.availableTags = [...k.availableTags, ...mangler].slice(0, 20);
+      if (mangler.length || k.availableTags.some(x => x.moderated))
+        aendr.availableTags = [...k.availableTags.map(x => ({ id: x.id, name: x.name, emoji: x.emoji, moderated: false })), ...mangler].slice(0, 20);
       if (!k.flags?.has?.(ChannelFlags.RequireTag)) aendr.flags = ChannelFlags.RequireTag;
     }
     if (Object.keys(aendr).length) await k.edit({ ...aendr, reason: '/setup' }).catch(e => rapport.push(`${opts.name}: ${e.message}`));
@@ -274,7 +276,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 8;
+const SKABELON_V = 9;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -303,7 +305,7 @@ async function byg(g, d, type) {
   // Forummer med galleri (kræver Community)
   for (const [k, opts] of forummer) {
     await sikrKanal(g, d, k.n, { ...opts, type: ChannelType.GuildForum, defaultForumLayout: 2 /* galleri */, defaultSortOrder: 1, flags: ChannelFlags.RequireTag,
-      availableTags: k.forum.tags.map(([name, emoji]) => ({ name, emoji: { id: null, name: emoji }, moderated: true })),
+      availableTags: k.forum.tags.map(([name, emoji]) => ({ name, emoji: { id: null, name: emoji }, moderated: false })),
       defaultReactionEmoji: { id: null, name: k.forum.reaktion } }, rapport)
       || await sikrKanal(g, d, k.n, opts, rapport); // uden Community: almindelig kanal i stedet
   }
