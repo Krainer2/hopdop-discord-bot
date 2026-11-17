@@ -526,12 +526,13 @@ async function opdaterStats(g, d) {
   const linjer = [['stat_med', `👥┃Medlemmer: ${g.memberCount}`]];
   if (d.type === 'shop') {
     linjer.push(['stat_kunder', `🛒┃Kunder: ${antalMed('Kunde')}`]);
-    const forum = d.kanaler.produkter && await g.channels.fetch(d.kanaler.produkter).catch(() => null);
     let produkter = 0;
-    if (forum?.threads) {
+    for (const n of ['produkter', 'showcase']) {
+      const forum = d.kanaler[n] && await g.channels.fetch(d.kanaler[n]).catch(() => null);
+      if (!forum?.threads) continue;
       const aktive = await forum.threads.fetchActive().catch(() => null);
       const arkiv = await forum.threads.fetchArchived({ limit: 100 }).catch(() => null);
-      produkter = (aktive?.threads.filter(t => t.parentId === forum.id).size || 0) + (arkiv?.threads.size || 0);
+      produkter += (aktive?.threads.filter(t => t.parentId === forum.id).size || 0) + (arkiv?.threads.size || 0);
     }
     linjer.push(['stat_produkter', `📦┃Produkter: ${produkter}`]);
   } else if (d.type === 'prison') linjer.push(['stat_vagter', `👮┃Vagter: ${antalMed('Vagt')}`]);
@@ -542,6 +543,13 @@ async function opdaterStats(g, d) {
       if (c) { d.kanaler[n] = c.id; gem(); }
     } else if (c.name !== navn) await c.setName(navn).catch(() => {}); // Discord tillader 2 omdøbninger pr. 10 min
   }
+}
+
+// Opdatér stats kort efter en ændring (samler flere ændringer, Discord tillader 2 omdøbninger pr. 10 min pr. kanal)
+const statsTimer = new Map();
+function statsSnart(g) {
+  if (statsTimer.has(g.id)) return;
+  statsTimer.set(g.id, setTimeout(() => { statsTimer.delete(g.id); opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); }, 15000));
 }
 
 // ---------- TICKETS ----------
@@ -566,7 +574,9 @@ async function aabnTicket(i, slags) {
   await kanal.send({ content: `${i.user}`, embeds: [new EmbedBuilder().setColor(farve(g)).setAuthor({ name: navnPaa(g) })
     .setTitle(`${valg[2]} ${valg[1]}`)
     .setDescription(d.type === 'shop' ? 'Tak for din ticket! Skriv hvilket script du er interesseret i, eller hvad du har brug for, så svarer vi hurtigst muligt.' : 'Tak for din ticket! Skriv så meget som muligt om din sag, så svarer staff hurtigst muligt.\nSkriv også dit **Minecraft-navn**.')],
-    components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('nv_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))] });
+    components: [new ActionRowBuilder().addComponents(
+      ...(d.type === 'shop' && ['koeb', 'bestil'].includes(slags) ? [new ButtonBuilder().setCustomId('nv_kunde').setLabel('Køb gennemført (staff)').setEmoji('✅').setStyle(ButtonStyle.Success)] : []),
+      new ButtonBuilder().setCustomId('nv_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))] });
   return i.editReply(`✅ Din ticket er oprettet: ${kanal}`);
 }
 
@@ -647,6 +657,16 @@ function start(client, onAlle, HOVED_ID, typer) {
   });
   onAlle('guildCreate', g => { if (g.id !== HOVED_ID) { console.log(`Netværk: botten er tilføjet til ${g.name}`); registrer(g); } });
 
+  const erForum = (g, id) => { const d = info(g); return d && [d.kanaler.produkter, d.kanaler.showcase].includes(id); };
+  onAlle('threadCreate', t => { if (t.guild && t.guild.id !== HOVED_ID && erForum(t.guild, t.parentId)) statsSnart(t.guild); });
+  onAlle('threadDelete', t => { if (t.guild && t.guild.id !== HOVED_ID && erForum(t.guild, t.parentId)) statsSnart(t.guild); });
+  onAlle('guildMemberUpdate', (gl, ny) => {
+    if (ny.guild.id === HOVED_ID) return;
+    const d = info(ny.guild); if (!d) return;
+    if (['Kunde', 'Vagt'].some(r => d.roller[r] && gl.roles.cache.has(d.roller[r]) !== ny.roles.cache.has(d.roller[r]))) statsSnart(ny.guild);
+  });
+  onAlle('guildMemberAdd', m => { if (m.guild.id !== HOVED_ID && info(m.guild)) statsSnart(m.guild); });
+  onAlle('guildMemberRemove', m => { if (m.guild.id !== HOVED_ID && info(m.guild)) statsSnart(m.guild); });
   onAlle('guildMemberUpdate', async (gl, ny) => {
     if (ny.guild.id === HOVED_ID || !gl.pending || ny.pending) return;
     const d = info(ny.guild); if (!d?.roller?.Spiller || ny.roles.cache.has(d.roller.Spiller)) return;
@@ -737,6 +757,18 @@ function start(client, onAlle, HOVED_ID, typer) {
         }
         if (i.customId.startsWith('nv_tk_')) return aabnTicket(i, i.customId.slice(6));
         if (i.customId === 'nv_luk') return lukTicket(i);
+        if (i.customId === 'nv_kunde') {
+          if (!erStaff(i.member, d)) return svar(i, '❌ Kun staff kan markere et køb som gennemført.');
+          const ejer = String(i.channel?.topic || '').replace('ticket:', '');
+          const m = ejer && await i.guild.members.fetch(ejer).catch(() => null);
+          if (!m || !d.roller.Kunde) return svar(i, '❌ Kunne ikke finde kunden.');
+          if (m.roles.cache.has(d.roller.Kunde)) return svar(i, `✅ ${m} er allerede kunde.`);
+          await m.roles.add(d.roller.Kunde, `Køb gennemført (markeret af ${i.user.tag})`);
+          await i.reply({ embeds: [new EmbedBuilder().setColor(0x22c55e).setTitle('✅ Køb gennemført')
+            .setDescription(`Tak for dit køb, ${m}! 🐐\nDu har fået rollen **Kunde** og kan nu skrive i ${d.kanaler.anmeldelser ? `<#${d.kanaler.anmeldelser}>` : '#anmeldelser'} og få hjælp i ${d.kanaler.kundesupport ? `<#${d.kanaler.kundesupport}>` : '#kunde-support'}.`)] });
+          await log(i.guild, '🛒 Ny kunde', [`${m} fik rollen **Kunde** (markeret af ${i.user}).`], 0x22c55e);
+          return statsSnart(i.guild);
+        }
       }
     } catch (e) {
       console.error(`Netværk (${i.guild?.name}):`, e);
