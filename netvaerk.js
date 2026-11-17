@@ -168,12 +168,14 @@ async function ordnRoller(g, d, type, rapport) {
   if (raekke.every(r => r.position < top) && top - n >= 1) {
     const ok = await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: top - 1 - i }))).then(() => true).catch(() => false);
     if (!ok) {
-      // Plan B: flyt én rolle ad gangen (kun dem, der står forkert), nedefra og op
-      for (let i = n - 1; i >= 0; i--) {
+      // Plan B: flyt én rolle ad gangen, oppefra og ned (hver rolle lige under den forrige)
+      for (let i = 1; i < n; i++) {
         await g.roles.fetch();
-        const rolle = g.roles.cache.get(raekke[i].id), under = raekke[i + 1] && g.roles.cache.get(raekke[i + 1].id);
-        if (under && rolle.position <= under.position) await rolle.setPosition(under.position + 1).catch(e => rapport.push(`Rolle ${rolle.name}: ${e.message}`));
+        const over = g.roles.cache.get(raekke[i - 1].id), rolle = g.roles.cache.get(raekke[i].id);
+        if (rolle.position !== over.position - 1) await rolle.setPosition(over.position - (rolle.position > over.position ? 0 : 1)).catch(e => rapport.push(`Rolle ${rolle.name}: ${e.message}`));
       }
+      await g.roles.fetch();
+      spor(`${g.name} roller: ${[...g.roles.cache.values()].sort((a, b) => b.position - a.position).map(x => `${x.name}@${x.position}`).join(', ')}`);
     }
   } else rapport.push(`(bot@${top}, ${n} roller) ` + 'Rolle-rækkefølge: flyt bottens rolle øverst under Serverindstillinger → Roller, og kør /setup igen.');
 }
@@ -262,7 +264,7 @@ async function saetVelkomst(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 6;
+const SKABELON_V = 7;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
