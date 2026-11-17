@@ -1,5 +1,7 @@
 // (c) 2026 Krainer2 - Alle rettigheder forbeholdt
-// NETVÆRK: HOPDOP Bot på de andre Discord-servere (Prison, KitPvP, UHC ...).
+// NETVÆRK: HOPDOP Bot på de andre HopDop-servere (Prison, KitPvP ...).
+// Gederne Butik Bot: en HELT separat bot (eget navn/token: SHOP_TOKEN i .env), der kører fra samme proces.
+// Den nævner aldrig HopDop, så butikken ikke kan spores tilbage.
 // HopDop selv (GUILD_ID) styres stadig KUN af index.js. Denne fil rører aldrig HopDop-serveren.
 // Data for hver server gemmes i servere.json (lokal fil, uploades ikke til GitHub).
 const fs = require('fs');
@@ -118,7 +120,7 @@ const svar = (i, tekst, ekstra = {}) => (i.replied || i.deferred ? i.editReply({
 
 async function sikrRolle(g, d, r) {
   let rolle = d.roller[r.navn] && await g.roles.fetch(d.roller[r.navn]).catch(() => null);
-  if (!rolle) rolle = g.roles.cache.find(x => x.name === r.navn) || await g.roles.create({ name: r.navn, color: r.farve, hoist: r.hoist, reason: 'HOPDOP Bot /setup' });
+  if (!rolle) rolle = g.roles.cache.find(x => x.name === r.navn) || await g.roles.create({ name: r.navn, color: r.farve, hoist: r.hoist, reason: '/setup' });
   d.roller[r.navn] = rolle.id;
   return rolle;
 }
@@ -145,7 +147,7 @@ function rettigheder(g, d, k, staffKat) {
 
 async function sikrKanal(g, d, noegle, opts) {
   let k = d.kanaler[noegle] && await g.channels.fetch(d.kanaler[noegle]).catch(() => null);
-  if (!k) k = await g.channels.create({ ...opts, reason: 'HOPDOP Bot /setup' });
+  if (!k) k = await g.channels.create({ ...opts, reason: '/setup' });
   d.kanaler[noegle] = k.id;
   return k;
 }
@@ -268,12 +270,12 @@ async function lukTicket(i) {
 }
 
 // ---------- KOMMANDOER ----------
-const kommandoer = [
+const lavKommandoer = typer => [
   new SlashCommandBuilder().setName('setup').setDescription('Sæt serveren op med kanaler, roller, regler og tickets (kun admin)')
     .setDefaultMemberPermissions(P.Administrator)
     .addStringOption(o => o.setName('type').setDescription('Hvilken slags server?').setRequired(true)
-      .addChoices(...Object.entries(TYPER).map(([value, t]) => ({ name: `${t.emoji} ${t.navn}`, value }))))
-    .addStringOption(o => o.setName('navn').setDescription('Navnet der vises i bottens beskeder, fx "HopDop Prison" (tom = servernavnet)').setMaxLength(40)),
+      .addChoices(...typer.map(value => ({ name: `${TYPER[value].emoji} ${TYPER[value].navn}`, value }))))
+    .addStringOption(o => o.setName('navn').setDescription('Navnet der vises i bottens beskeder, fx "Gederne Shop" (tom = servernavnet)').setMaxLength(40)),
   new SlashCommandBuilder().setName('indstil').setDescription('Skift indstillinger for serveren (kun admin)')
     .setDefaultMemberPermissions(P.Administrator)
     .addStringOption(o => o.setName('ip').setDescription('Minecraft-serverens IP (skriv "ingen" for at fjerne den)').setMaxLength(80))
@@ -284,7 +286,9 @@ const kommandoer = [
     .addStringOption(o => o.setName('tekst').setDescription('Hvad skal botten skrive?').setRequired(true).setMaxLength(2000)),
 ].map(c => c.toJSON());
 
-module.exports = function netvaerk(client, onAlle, HOVED_ID) {
+// Starter netværks-funktionerne på en bot. typer = hvilke servertyper /setup tilbyder på den bot.
+function start(client, onAlle, HOVED_ID, typer) {
+  const kommandoer = lavKommandoer(typer);
   const andre = () => [...client.guilds.cache.values()].filter(g => g.id !== HOVED_ID);
   const registrer = g => g.commands.set(kommandoer)
     .then(() => console.log(`Netværk: kommandoer sat på ${g.name}`))
@@ -357,6 +361,28 @@ module.exports = function netvaerk(client, onAlle, HOVED_ID) {
       svar(i, `❌ Noget gik galt: ${e.message}`);
     }
   });
+}
+
+// ---------- GEDERNE BUTIK BOT (separat bot) ----------
+const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.';
+function startShopBot() {
+  const { Client, GatewayIntentBits, ActivityType, OAuth2Scopes } = require('discord.js');
+  const shop = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+  start(shop, shop.on.bind(shop), null, ['shop']);
+  shop.once('clientReady', async () => {
+    console.log('Gederne Butik Bot er online som', shop.user.tag);
+    shop.user.setPresence({ activities: [{ name: 'Gederne Shop 🐐', type: ActivityType.Watching }], status: 'online' });
+    await shop.application.edit({ description: SHOP_OM_MIG }).catch(e => console.error('Shop-bot "Om mig":', e.message));
+    console.log('Invitér Gederne Butik Bot:', shop.generateInvite({ scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands], permissions: ['Administrator'] }));
+  });
+  shop.login(process.env.SHOP_TOKEN).catch(e => console.error('Gederne Butik Bot kunne ikke logge ind:', e.message,
+    /intent/i.test(e.message) ? '(slå "Server Members Intent" til under Bot i Developer Portal)' : ''));
+  return shop;
+}
+
+module.exports = function netvaerk(client, onAlle, HOVED_ID) {
+  start(client, onAlle, HOVED_ID, ['prison', 'kitpvp', 'uhc', 'andet']);
+  if (process.env.SHOP_TOKEN) startShopBot();
 };
 // Bruges af testen
-module.exports._intern = { data, TYPER, KANALER, ROLLER, TICKETS, kommandoer };
+module.exports._intern = { data, TYPER, KANALER, ROLLER, TICKETS, lavKommandoer, start };

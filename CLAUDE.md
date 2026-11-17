@@ -7,3 +7,4 @@
 - `.env` (token) må aldrig committes eller vises. `config.json` og `forslag.json` er lokale filer og ligger i .gitignore.
 - `setup.js` køres kun én gang. Nye funktioner hører hjemme i `index.js`.
 - Flere Discord-servere: `index.js` reagerer kun på HopDop (GUILD_ID), fordi `client.on` er pakket ind øverst. Alt til de andre servere (Prison, KitPvP, Gederne Shop) hører hjemme i `netvaerk.js` (data i `servere.json`). Minecraft-link på de nye servere er ikke lavet endnu (Minecraft-serverne findes ikke endnu).
+- Gederne Butik Bot: separat bot (SHOP_TOKEN i .env) startet fra netvaerk.js i samme proces. Kun servertypen shop. Må ALDRIG nævne eller kunne spores til HopDop (navn, Om mig, status, tekster, audit-log).
