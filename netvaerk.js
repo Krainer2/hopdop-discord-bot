@@ -35,7 +35,7 @@ const ROLLER = {
   prison: [{ navn: 'Vagt', farve: 0x1d4ed8, hoist: true }],
   kitpvp: [{ navn: 'Event', farve: 0xa855f7, hoist: false }],
   uhc: [{ navn: 'Host', farve: 0xeab308, hoist: true }],
-  shop: [{ navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
+  shop: [{ navn: 'Booster', farve: 0xf47fff, hoist: true }, { navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
   andet: [],
 };
 // las = kun læse: kun staff poster/skriver (som på HopDop HCF). reager = medlemmer må reagere. skriv = roller, der må skrive alligevel.
@@ -63,6 +63,10 @@ const KANALER = {
       { n: 'chat', navn: '💬┃chat', slow: 3, topic: 'Snak om alt muligt. Hold en god tone.' },
       { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Brug bottens kommandoer her, fx /ip.' },
       { n: 'forslag', navn: '💡┃forslag', slow: 30, topic: 'Har du en idé? Skriv den her. Stem med reaktioner.' },
+      { n: 'medier', navn: '🖼️┃medier', slow: 10, kun: ['shop'], topic: 'Billeder og videoer af dine builds, servere og setups.' },
+      { n: 'scripting', navn: '💻┃skript-snak', slow: 3, kun: ['shop'], topic: 'Snak om Skript, plugins og udvikling. Hjælp hinanden.' },
+      { n: 'minecraft', navn: '⛏️┃minecraft-snak', slow: 3, kun: ['shop'], topic: 'Alt om Minecraft og servere.' },
+      { n: 'memes', navn: '😂┃memes', slow: 10, kun: ['shop'], topic: 'Memes og sjove ting. Hold det pænt.' },
     ] },
   ],
   prison: [{ id: 'prison', kat: '[ 🔒 | PRISON ]', kanaler: [
@@ -97,6 +101,11 @@ const KANALER = {
     { id: 'partner', kat: '[ 🤝 | PARTNERE ]', kanaler: [
       { n: 'partnere', navn: '🤝┃samarbejdspartnere', las: true, reager: true, topic: 'Vores samarbejdspartnere. Vil du være partner? Opret en ticket og vælg Samarbejde.' },
       { n: 'reklame', navn: '📣┃reklame', slow: 21600, topic: 'Reklamér for din Discord-server eller dit projekt. Ét opslag hver 6. time. Ingen NSFW, scam eller pings.' },
+    ] },
+    { id: 'boost', kat: '[ 💜 | BOOSTERS ]', kun: ['shop'], kanaler: [
+      { n: 'boosts', navn: '🔮┃boosts', las: true, reager: true, topic: 'Se hvad serveren låser op ved næste boost. Tak til alle boosters! 💜' },
+      { n: 'boosterlounge', navn: '💜┃booster-lounge', rolle: 'Booster', topic: 'Kun for boosters. Tak fordi du støtter os! 💜' },
+      { n: 'boostervoice', navn: '💜┃Booster-snak', voice: true, rolle: 'Booster' },
     ] },
     { id: 'support', kat: '[ 🎫 | SUPPORT ]', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true, topic: 'Tryk på en knap for at oprette en ticket.' }] },
     { id: 'voice', kat: '[ 🔊 | SNAK ]', kanaler: [
@@ -140,6 +149,7 @@ const svar = (i, tekst, ekstra = {}) => (i.replied || i.deferred ? i.editReply({
 // ---------- ROLLER ----------
 // Grund-rettigheder for rollerne (resten styres pr. kanal). Ingen almindelige medlemmer kan pinge @everyone eller roller.
 const ROLLE_RET = {
+  Booster: [P.ChangeNickname, P.UseExternalEmojis, P.UseExternalStickers, P.AttachFiles, P.EmbedLinks, P.Stream],
   Ejer: [P.Administrator],
   Admin: [P.ManageGuild, P.ManageChannels, P.ManageRoles, P.ViewAuditLog, P.KickMembers, P.BanMembers, P.ModerateMembers, P.ManageMessages, P.ManageThreads, P.ManageNicknames, P.MoveMembers, P.MuteMembers, P.DeafenMembers, P.MentionEveryone, P.ManageEvents],
   Mod: [P.ViewAuditLog, P.KickMembers, P.ModerateMembers, P.ManageMessages, P.ManageThreads, P.ManageNicknames, P.MoveMembers, P.MuteMembers, P.MentionEveryone],
@@ -215,7 +225,7 @@ function rettigheder(g, d, k, staffKat) {
   const laesNej = [...LAAS, ...(k.reager ? [] : [P.AddReactions])];
   if (k.alle) ow[0] = { id: g.roles.everyone.id, allow: laesning, deny: laesNej };
   if (k.rolle) {
-    if (d.roller[k.rolle]) ow.push({ id: d.roller[k.rolle], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions] });
+    if (d.roller[k.rolle]) ow.push({ id: d.roller[k.rolle], allow: k.voice ? [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD] : [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions] });
   } else if (spiller) {
     if (k.voice) ow.push({ id: spiller, allow: [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD] });
     else if (k.las) ow.push({ id: spiller, allow: laesning, deny: laesNej });
@@ -354,20 +364,20 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 13;
+const SKABELON_V = 14;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
   for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
   gem();
   await g.channels.fetch();
-  const grupper = [...KANALER.start, ...KANALER[type], ...KANALER.slut];
+  const grupper = [...KANALER.start, ...KANALER[type], ...KANALER.slut].filter(gr => !gr.kun || gr.kun.includes(type));
   const forummer = [];
   for (const [nr, gr] of grupper.entries()) {
     const kat = await sikrKanal(g, d, `kat_${gr.id}`, { name: gr.kat, type: ChannelType.GuildCategory, position: nr,
       permissionOverwrites: gr.staff ? rettigheder(g, d, {}, true) : undefined }, rapport);
     if (!kat) continue;
-    for (const k of gr.kanaler.filter(k => !k.ikke?.includes(type))) {
+    for (const k of gr.kanaler.filter(k => !k.ikke?.includes(type) && (!k.kun || k.kun.includes(type)))) {
       const opts = { name: k.navn, type: k.voice ? ChannelType.GuildVoice : ChannelType.GuildText, parent: kat.id,
         permissionOverwrites: rettigheder(g, d, k, gr.staff), ...(k.voice ? {} : { topic: k.topic || '', rateLimitPerUser: k.slow || 0 }) };
       if (k.forum) { forummer.push([k, opts]); continue; }
@@ -552,6 +562,81 @@ function statsSnart(g) {
   statsTimer.set(g.id, setTimeout(() => { statsTimer.delete(g.id); opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); }, 15000));
 }
 
+// ---------- BOOSTS (som på HopDop HCF) ----------
+const BOOST_TRIN = [
+  { n: 1, titel: 'Første boost', discord: [], os: ['💜 Booster-rolle, der vises for sig i medlemslisten', '💜 Adgang til booster-lounge og Booster-snak', '🎨 Egen rollefarve med /boosterfarve', '😎 Brug emojis og stickers fra andre servere'] },
+  { n: 2, titel: 'Niveau 1', discord: ['50 ekstra emoji-pladser (100 i alt)', 'Animeret server-ikon', 'Invite-baggrund', 'Bedre lyd (128 kbps)'], os: [] },
+  { n: 7, titel: 'Niveau 2', discord: ['Server-banner øverst i kanallisten', 'Rolleikoner', '150 emoji-pladser', 'Bedre lyd (256 kbps)', 'Uploads op til 50 MB'], os: [] },
+  { n: 14, titel: 'Niveau 3', discord: ['Eget invite-link (vanity URL)', 'Animeret banner', '250 emoji-pladser', 'Bedste lyd (384 kbps)', 'Uploads op til 100 MB'], os: [] },
+];
+const bjaelke = (a, b, bredde = 14) => { const f = Math.max(0, Math.min(bredde, Math.round(a / b * bredde))); return '█'.repeat(f) + '░'.repeat(bredde - f); };
+async function synkBoostere(g, d) {
+  const r = d?.roller?.Booster && g.roles.cache.get(d.roller.Booster); if (!r) return;
+  const medl = await g.members.fetch().catch(() => g.members.cache);
+  d.boost = d.boost || { farver: {} };
+  for (const m of medl.values()) {
+    if (m.user.bot) continue;
+    const bo = !!m.premiumSince;
+    if (bo && !m.roles.cache.has(r.id)) await m.roles.add(r, 'Booster serveren').catch(() => {});
+    if (!bo && m.roles.cache.has(r.id)) await m.roles.remove(r, 'Booster ikke længere').catch(() => {});
+    if (!bo && d.boost.farver?.[m.id]) { await g.roles.cache.get(d.boost.farver[m.id])?.delete('Booster ikke længere').catch(() => {}); delete d.boost.farver[m.id]; gem(); }
+  }
+}
+async function opdaterBoosts(g, d) {
+  const k = d?.kanaler?.boosts && await g.channels.fetch(d.kanaler.boosts).catch(() => null); if (!k) return;
+  g = await g.fetch().catch(() => g);
+  const n = g.premiumSubscriptionCount || 0, niv = g.premiumTier || 0;
+  const flertal = x => `${x} boost${x === 1 ? '' : 's'}`;
+  const naeste = BOOST_TRIN.find(t => t.n > n);
+  const linjer = [`🔮 Boosts lige nu: **${n}**`, `⭐ Discord-niveau: **${niv}**`, `\`${bjaelke(n, 14)}\` **${n}/14**`, ''];
+  if (naeste) linjer.push(`⬆️ **Næste mål: ${naeste.titel}** (mangler **${flertal(naeste.n - n)}**)`, ...[...naeste.discord, ...naeste.os].map(x => `• ${x}`));
+  else linjer.push('⬆️ **Serveren er på max niveau!** Tusind tak! 💜');
+  const e = new EmbedBuilder().setColor(0xf47fff).setAuthor({ name: `${navnPaa(g)} · Boosts` }).setTitle('💜 Tak til alle der booster!').setDescription(linjer.join('\n'));
+  if (g.iconURL()) e.setThumbnail(g.iconURL({ size: 256 }));
+  for (const t of BOOST_TRIN) e.addFields({ name: `${n >= t.n ? '✅' : '🔒'} ${flertal(t.n)} · ${t.titel}`, value: [...(t.discord.length ? [`**Discord:** ${t.discord.join(' · ')}`] : []), ...(t.os.length ? [`**Hos os:** ${t.os.join(' · ')}`] : [])].join('\n').slice(0, 1024) || '–' });
+  const boostere = g.members.cache.filter(m => m.premiumSince && !m.user.bot).map(m => `<@${m.id}>`);
+  if (boostere.length) e.addFields({ name: `💜 Boosters (${boostere.length})`, value: boostere.slice(0, 30).join(' ').slice(0, 1024) });
+  e.setFooter({ text: 'Opdateres automatisk. Hver gang nogen booster, skrives det herunder.' });
+  await sendEllerRet(k, { embeds: [e] });
+}
+async function boostOpnaaet(g, d) {
+  d.boost = d.boost || { farver: {} };
+  const n = g.premiumSubscriptionCount || 0;
+  if (!Array.isArray(d.boost.opnaaet)) { d.boost.opnaaet = BOOST_TRIN.filter(t => t.n <= n).map(t => t.n); gem(); return; }
+  d.boost.opnaaet = d.boost.opnaaet.filter(x => x <= n);
+  const k = d.kanaler.boosts && await g.channels.fetch(d.kanaler.boosts).catch(() => null);
+  for (const t of BOOST_TRIN.filter(x => x.n <= n && !d.boost.opnaaet.includes(x.n))) {
+    d.boost.opnaaet.push(t.n); gem();
+    if (k) await k.send({ content: [`🎉 **Vi har nu ${flertalTekst(t.n)}!** (${t.titel})`, ...(t.discord.length ? [`✨ Nyt på Discord: ${t.discord.join(' · ')}`] : []), ...(t.os.length ? [`🎁 Nyt hos os: ${t.os.join(' · ')}`] : [])].join('\n'), allowedMentions: { parse: [] } }).catch(() => {});
+  }
+  gem();
+}
+const flertalTekst = x => `${x} boost${x === 1 ? '' : 's'}`;
+
+// ---------- EMOJIS (udvalgt fra emoji.gg) ----------
+const EMOJI_CDN = 'https://cdn3.emoji.gg/emojis/';
+const SHOP_EMOJIS = [
+  ['ged', '888807-goat.gif'], ['ged100', '638259-100goat.png'], ['gedpixel', '605187-goat.png'], ['gedregnbue', '88964-rainbowgoat.gif'],
+  ['penge', '786534-money.png'], ['betaling', '906018-cashmoney.png'], ['flyvendepenge', '471108-flyingmoney.png'], ['guld', '346055-goldbag2.png'],
+  ['ja', '491612-checkmark.gif'], ['nej', '746487-crossmark.gif'], ['verificeret', '717729-verified.png'], ['loading', '308215-loading.gif'],
+  ['lavticket', '846359-makeaticket.png'], ['ticket', '543756-ticket.png'], ['glimmer', '148047-sparklesstarsunsolarglitter.gif'],
+  ['shop', '624357-shoppingbag.png'], ['kurv', '557538-shoppingcart.png'], ['hjerte', '288750-heart.png'], ['pil', '25888-yellow-arrow.gif'],
+  ['krone', '489045-crown.png'], ['nyt', '25287-new.gif'], ['booster', '424936-serverbooster.png'], ['diamant', '626030-booster.png'],
+  ['vink', '825758-wave.png'], ['klokke', '998082-alert.png'], ['megafon', '222091-megaphone.png'], ['advarsel', '209331-warning.gif'],
+];
+async function opretEmojis(g, d) {
+  if (d.type !== 'shop' || d.emojisV === 1) return;
+  const findes = await g.emojis.fetch().catch(() => g.emojis.cache);
+  const ud = { ok: 0, fejl: [] };
+  for (const [navn, fil] of SHOP_EMOJIS) {
+    if (findes.some(e => e.name === navn)) continue;
+    await g.emojis.create({ attachment: EMOJI_CDN + fil, name: navn, reason: 'Server-emojis' }).then(() => ud.ok++).catch(e => ud.fejl.push(`${navn}: ${e.message}`));
+  }
+  spor(`emojis ${g.name}: ${ud.ok} oprettet. ${ud.fejl.join(' | ')}`);
+  if (!ud.fejl.length) { d.emojisV = 1; gem(); }
+  await log(g, '😀 Emojis tilføjet', [`${ud.ok} nye emojis er lagt op.`, ...(ud.fejl.length ? ['', `⚠️ ${ud.fejl.length} kunne ikke laves (fx for store billeder). Det prøves igen ved næste genstart.`] : [])], ud.fejl.length ? 0xf59e0b : 0x22c55e);
+}
+
 // ---------- TICKETS ----------
 async function aabnTicket(i, slags) {
   const g = i.guild, d = info(g);
@@ -597,6 +682,8 @@ async function lukTicket(i) {
 
 // ---------- KOMMANDOER ----------
 const lavKommandoer = typer => [
+  ...(typer.includes('shop') ? [new SlashCommandBuilder().setName('boosterfarve').setDescription('Kun for boosters: vælg din egen rollefarve')
+    .addStringOption(o => o.setName('farve').setDescription('Hex-farve, fx ff66cc').setRequired(true).setMinLength(6).setMaxLength(7))] : []),
   new SlashCommandBuilder().setName('setup').setDescription('Sæt serveren op med kanaler, roller, regler og tickets (kun admin)')
     .setDefaultMemberPermissions(P.Administrator)
     .addStringOption(o => o.setName('type').setDescription('Hvilken slags server?').setRequired(true)
@@ -630,6 +717,9 @@ function start(client, onAlle, HOVED_ID, typer) {
     await findInvites(client);
     const stats = () => { for (const g of andre()) opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); };
     setTimeout(stats, 60000).unref?.(); setInterval(stats, 10 * 60000).unref?.();
+    setTimeout(async () => { for (const g of andre()) { const d = info(g); if (!d?.sat) continue;
+      await synkBoostere(g, d).catch(e => spor(`boost: ${e.message}`)); await boostOpnaaet(g, d).catch(() => {}); await opdaterBoosts(g, d).catch(e => spor(`boosts: ${e.message}`));
+      await opretEmojis(g, d).catch(e => spor(`emojis: ${e.message}`)); } }, 30000).unref?.();
     for (const g of andre()) {
       await registrer(g);
       spor(`kommandoer ok ${g.name}`);
@@ -666,6 +756,23 @@ function start(client, onAlle, HOVED_ID, typer) {
     if (['Kunde', 'Vagt'].some(r => d.roller[r] && gl.roles.cache.has(d.roller[r]) !== ny.roles.cache.has(d.roller[r]))) statsSnart(ny.guild);
   });
   onAlle('guildMemberAdd', m => { if (m.guild.id !== HOVED_ID && info(m.guild)) statsSnart(m.guild); });
+  // Boosts: rolle, #boosts og besked når nogen booster
+  onAlle('guildMemberUpdate', async (gl, ny) => {
+    if (ny.guild.id === HOVED_ID || !!gl.premiumSince === !!ny.premiumSince) return;
+    const d = info(ny.guild); if (!d) return;
+    await synkBoostere(ny.guild, d).catch(() => {}); await opdaterBoosts(ny.guild, d).catch(() => {});
+  });
+  onAlle('guildUpdate', async (gl, ny) => {
+    if (ny.id === HOVED_ID || gl.premiumSubscriptionCount === ny.premiumSubscriptionCount) return;
+    const d = info(ny); if (!d) return;
+    await boostOpnaaet(ny, d).catch(() => {}); await opdaterBoosts(ny, d).catch(() => {});
+  });
+  onAlle('messageCreate', async m => {
+    if (!m.guild || m.guild.id === HOVED_ID || ![8, 9, 10, 11].includes(m.type)) return;
+    const d = info(m.guild); const k = d?.kanaler?.boosts && await m.guild.channels.fetch(d.kanaler.boosts).catch(() => null); if (!k) return;
+    const niv = { 9: 1, 10: 2, 11: 3 }[m.type];
+    await k.send({ content: `🔮 ${m.author} har lige boosted serveren! Tusind tak! 💜${niv ? ` Vi er nu på **niveau ${niv}**! 🎉` : ''}`, allowedMentions: { parse: [] } }).catch(() => {});
+  });
   onAlle('guildMemberRemove', m => { if (m.guild.id !== HOVED_ID && info(m.guild)) statsSnart(m.guild); });
   onAlle('guildMemberUpdate', async (gl, ny) => {
     if (ny.guild.id === HOVED_ID || !gl.pending || ny.pending) return;
@@ -729,6 +836,24 @@ function start(client, onAlle, HOVED_ID, typer) {
           }
           await log(g, '🖼️ Grafik opdateret', [`Af ${i.user}`, ...ud]);
           return svar(i, ud.join('\n'));
+        }
+        if (i.commandName === 'boosterfarve') {
+          const m = i.member, hex = i.options.getString('farve').replace('#', '').trim();
+          if (!m.premiumSince) return svar(i, 'Kun dem, der booster serveren, kan bruge den her. 💜');
+          if (!/^[0-9a-f]{6}$/i.test(hex)) return svar(i, 'Skriv en hex-farve med 6 tegn, fx `ff66cc`.');
+          await i.deferReply({ flags: MessageFlags.Ephemeral });
+          d.boost = d.boost || { farver: {} }; d.boost.farver = d.boost.farver || {};
+          let r = d.boost.farver[m.id] && i.guild.roles.cache.get(d.boost.farver[m.id]);
+          if (r) await r.setColor(parseInt(hex, 16)).catch(() => {});
+          else {
+            r = await i.guild.roles.create({ name: `💜 ${m.displayName}`.slice(0, 100), color: parseInt(hex, 16), permissions: [], reason: 'Boosterfarve' }).catch(() => null);
+            if (!r) return svar(i, 'Kunne ikke lave rollen.');
+            const br = d.roller.Booster && i.guild.roles.cache.get(d.roller.Booster);
+            if (br) await r.setPosition(br.position + 1).catch(() => {});
+            d.boost.farver[m.id] = r.id; gem();
+          }
+          await m.roles.add(r).catch(() => {});
+          return svar(i, `🎨 Din farve er sat til **#${hex.toLowerCase()}**.`);
         }
         if (i.commandName === 'invite') {
           return i.reply({ embeds: [new EmbedBuilder().setColor(farve(i.guild)).setTitle(`📨 Invitér dine venner til ${navnPaa(i.guild)}`)
