@@ -230,8 +230,8 @@ async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
     const aendr = {};
     if (k.name !== opts.name) aendr.name = opts.name;
     if (opts.parent && k.parentId !== opts.parent) aendr.parent = opts.parent;
-    if (opts.topic !== undefined && 'topic' in k && k.topic !== opts.topic) aendr.topic = opts.topic;
-    if (opts.rateLimitPerUser !== undefined && 'rateLimitPerUser' in k && k.rateLimitPerUser !== opts.rateLimitPerUser) aendr.rateLimitPerUser = opts.rateLimitPerUser;
+    if (opts.topic !== undefined && 'topic' in k && (k.topic || '') !== (opts.topic || '')) aendr.topic = opts.topic;
+    if (opts.rateLimitPerUser !== undefined && 'rateLimitPerUser' in k && (k.rateLimitPerUser || 0) !== (opts.rateLimitPerUser || 0)) aendr.rateLimitPerUser = opts.rateLimitPerUser;
     if (k.type === ChannelType.GuildForum && opts.defaultForumLayout !== undefined && k.defaultForumLayout !== opts.defaultForumLayout) aendr.defaultForumLayout = opts.defaultForumLayout;
     if (Object.keys(aendr).length) await k.edit({ ...aendr, reason: '/setup' }).catch(e => rapport.push(`${opts.name}: ${e.message}`));
     if (opts.permissionOverwrites && !sammeRet(k, opts.permissionOverwrites)) await k.permissionOverwrites.set(opts.permissionOverwrites, '/setup').catch(e => rapport.push(`Rettigheder ${opts.name}: ${e.message}`));
