@@ -36,55 +36,58 @@ const ROLLER = {
   shop: [{ navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
   andet: [],
 };
-// las = kun læse (spillere kan ikke skrive). rolle = kun den rolle (+ staff) kan se kanalen. ikke = springes over for de typer.
+// las = kun læse: kun staff poster/skriver (som på HopDop HCF). reager = medlemmer må reagere. skriv = roller, der må skrive alligevel.
+// rolle = kun den rolle (+ staff) kan se kanalen. ikke = springes over for de typer. forum = forum-kanal (galleri). slow = cooldown i sek.
 const KANALER = {
   start: [
-    { kat: '📌 INFO', kanaler: [
-      { n: 'regler', navn: '📜┃regler', las: true, alle: true },
-      { n: 'velkommen', navn: '👋┃velkommen', las: true },
-      { n: 'nyheder', navn: '📢┃nyheder', las: true },
-      { n: 'devlog', navn: '🛠️┃dev-log', las: true },
-      { n: 'serverip', navn: '🌐┃server-ip', las: true, ikke: ['shop'] },
+    { id: 'info', kat: '[ 📌 | INFORMATION ]', kanaler: [
+      { n: 'regler', navn: '📜┃regler', las: true, alle: true, topic: 'Læs reglerne, og tryk på knappen for at få adgang.' },
+      { n: 'velkommen', navn: '👋┃velkommen', las: true, topic: 'Nye medlemmer bydes velkommen her.' },
+      { n: 'nyheder', navn: '📢┃nyheder', las: true, reager: true, topic: 'Nyheder og annonceringer.' },
+      { n: 'devlog', navn: '🛠️┃dev-log', las: true, reager: true, topic: 'Hvad er nyt og ændret?' },
+      { n: 'serverip', navn: '🌐┃server-ip', las: true, ikke: ['shop'], topic: 'Serverens IP, og sådan joiner du.' },
     ] },
-    { kat: '💬 COMMUNITY', kanaler: [
-      { n: 'chat', navn: '💬┃chat' },
-      { n: 'botkmd', navn: '🤖┃bot-kommandoer' },
-      { n: 'forslag', navn: '💡┃forslag' },
+    { id: 'community', kat: '[ 💬 | COMMUNITY ]', kanaler: [
+      { n: 'chat', navn: '💬┃chat', slow: 3, topic: 'Snak om alt muligt. Hold en god tone.' },
+      { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Brug bottens kommandoer her, fx /ip.' },
+      { n: 'forslag', navn: '💡┃forslag', slow: 30, topic: 'Har du en idé? Skriv den her. Stem med reaktioner.' },
     ] },
   ],
-  prison: [{ kat: '🔒 PRISON', kanaler: [
-    { n: 'vagtinfo', navn: '🚔┃bliv-vagt', las: true },
-    { n: 'ranks', navn: '🏢┃celler-og-ranks', las: true },
-    { n: 'vagtchat', navn: '👮┃vagt-chat', rolle: 'Vagt' },
+  prison: [{ id: 'prison', kat: '[ 🔒 | PRISON ]', kanaler: [
+    { n: 'vagtinfo', navn: '🚔┃bliv-vagt', las: true, reager: true, topic: 'Sådan bliver du vagt. Ansøg via en ticket.' },
+    { n: 'ranks', navn: '🏢┃celler-og-ranks', las: true, reager: true, topic: 'Oversigt over celler og ranks.' },
+    { n: 'vagtchat', navn: '👮┃vagt-chat', rolle: 'Vagt', topic: 'Kun for vagter og staff.' },
   ] }],
-  kitpvp: [{ kat: '⚔️ KITPVP', kanaler: [
-    { n: 'kits', navn: '🗡️┃kits', las: true },
-    { n: 'duels', navn: '🥊┃duels' },
-    { n: 'leaderboard', navn: '🏆┃leaderboard', las: true },
-    { n: 'clips', navn: '🎬┃clips' },
+  kitpvp: [{ id: 'kitpvp', kat: '[ ⚔️ | KITPVP ]', kanaler: [
+    { n: 'kits', navn: '🗡️┃kits', las: true, reager: true, topic: 'Alle kits og hvad de indeholder.' },
+    { n: 'duels', navn: '🥊┃duels', slow: 5, topic: 'Find en modstander til en 1v1.' },
+    { n: 'leaderboard', navn: '🏆┃leaderboard', las: true, reager: true, topic: 'Top-spillerne.' },
+    { n: 'clips', navn: '🎬┃clips', slow: 10, topic: 'Del dine bedste clips.' },
   ] }],
-  uhc: [{ kat: '🍎 UHC', kanaler: [
-    { n: 'uhcevents', navn: '📣┃uhc-events', las: true },
-    { n: 'hosting', navn: '⏰┃hosting-tider', las: true },
-    { n: 'teamsoeg', navn: '🤝┃team-søgning' },
-    { n: 'halloffame', navn: '🏆┃hall-of-fame', las: true },
+  uhc: [{ id: 'uhc', kat: '[ 🍎 | UHC ]', kanaler: [
+    { n: 'uhcevents', navn: '📣┃uhc-events', las: true, reager: true },
+    { n: 'hosting', navn: '⏰┃hosting-tider', las: true, reager: true },
+    { n: 'teamsoeg', navn: '🤝┃team-søgning', slow: 10 },
+    { n: 'halloffame', navn: '🏆┃hall-of-fame', las: true, reager: true },
   ] }],
-  shop: [{ kat: '🛒 SHOP', kanaler: [
-    { n: 'produkter', navn: '📦┃produkter', las: true },
-    { n: 'showcase', navn: '🎬┃showcase', las: true },
-    { n: 'priser', navn: '💰┃priser', las: true },
-    { n: 'opdateringer', navn: '🆕┃opdateringer', las: true },
-    { n: 'anmeldelser', navn: '⭐┃anmeldelser' },
-    { n: 'kundesupport', navn: '🛠️┃kunde-support', rolle: 'Kunde' },
+  shop: [{ id: 'shop', kat: '[ 🛒 | SHOP ]', kanaler: [
+    { n: 'produkter', navn: '📦┃produkter', las: true, reager: true, forum: { tags: [['Skript', '📜'], ['Plugin', '🧩'], ['Setup', '🏗️'], ['Gratis', '🎁'], ['Nyt', '🆕'], ['Udsalg', '🏷️']], reaktion: '🔥' },
+      topic: 'Alle vores produkter. Ét opslag pr. produkt med billeder, pris og beskrivelse. Køb via en ticket i #opret-ticket.' },
+    { n: 'showcase', navn: '🎬┃showcase', las: true, reager: true, forum: { tags: [['Video', '🎥'], ['Billeder', '🖼️'], ['Opdatering', '🆕'], ['Custom', '✍️']], reaktion: '🔥' },
+      topic: 'Se vores scripts i aktion. Videoer og billeder af hvad vi har lavet.' },
+    { n: 'priser', navn: '💰┃priser', las: true, reager: true, topic: 'Prisoversigt.' },
+    { n: 'opdateringer', navn: '🆕┃opdateringer', las: true, reager: true, topic: 'Nye versioner og rettelser af vores produkter.' },
+    { n: 'anmeldelser', navn: '⭐┃anmeldelser', las: true, reager: true, skriv: ['Kunde'], slow: 60, topic: 'Anmeldelser fra kunder. Kun kunder kan skrive her.' },
+    { n: 'kundesupport', navn: '🛠️┃kunde-support', rolle: 'Kunde', topic: 'Hjælp til produkter, du har købt.' },
   ] }],
   andet: [],
   slut: [
-    { kat: '🎫 SUPPORT', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true }] },
-    { kat: '🔊 VOICE', kanaler: [
-      { n: 'voice1', navn: '🔊 Snak 1', voice: true },
-      { n: 'voice2', navn: '🔊 Snak 2', voice: true },
+    { id: 'support', kat: '[ 🎫 | SUPPORT ]', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true, topic: 'Tryk på en knap for at oprette en ticket.' }] },
+    { id: 'voice', kat: '[ 🔊 | SNAK ]', kanaler: [
+      { n: 'voice1', navn: '💬┃Hyggesnak 1', voice: true },
+      { n: 'voice2', navn: '💬┃Hyggesnak 2', voice: true },
     ] },
-    { kat: '🛡️ STAFF', staff: true, kanaler: [
+    { id: 'staff', kat: '[ 🛡️ | STAFF ]', staff: true, kanaler: [
       { n: 'staffchat', navn: '🛡️┃staff-chat' },
       { n: 'ticketlog', navn: '📋┃ticket-log' },
       { n: 'botlog', navn: '📋┃bot-log' },
@@ -118,38 +121,164 @@ const farve = g => TYPER[info(g)?.type]?.farve || 0x22c55e;
 const erStaff = (m, d) => m.permissions.has(P.Administrator) || m.guild.ownerId === m.id || STAFF_ROLLER.some(r => d?.roller?.[r] && m.roles.cache.has(d.roller[r]));
 const svar = (i, tekst, ekstra = {}) => (i.replied || i.deferred ? i.editReply({ content: tekst, ...ekstra }) : i.reply({ content: tekst, flags: MessageFlags.Ephemeral, ...ekstra })).catch(() => {});
 
+// ---------- ROLLER ----------
+// Grund-rettigheder for rollerne (resten styres pr. kanal). Ingen almindelige medlemmer kan pinge @everyone eller roller.
+const ROLLE_RET = {
+  Ejer: [P.Administrator],
+  Admin: [P.ManageGuild, P.ManageChannels, P.ManageRoles, P.ViewAuditLog, P.KickMembers, P.BanMembers, P.ModerateMembers, P.ManageMessages, P.ManageThreads, P.ManageNicknames, P.MoveMembers, P.MuteMembers, P.DeafenMembers, P.MentionEveryone, P.ManageEvents],
+  Mod: [P.ViewAuditLog, P.KickMembers, P.ModerateMembers, P.ManageMessages, P.ManageThreads, P.ManageNicknames, P.MoveMembers, P.MuteMembers, P.MentionEveryone],
+  Hjælper: [P.ModerateMembers, P.ManageMessages, P.MoveMembers],
+};
 async function sikrRolle(g, d, r) {
   let rolle = d.roller[r.navn] && await g.roles.fetch(d.roller[r.navn]).catch(() => null);
-  if (!rolle) rolle = g.roles.cache.find(x => x.name === r.navn) || await g.roles.create({ name: r.navn, color: r.farve, hoist: r.hoist, reason: '/setup' });
+  if (!rolle) rolle = g.roles.cache.find(x => x.name === r.navn && !x.managed) || await g.roles.create({ name: r.navn, color: r.farve, hoist: r.hoist, mentionable: false, permissions: [], reason: '/setup' });
   d.roller[r.navn] = rolle.id;
   return rolle;
 }
+// Rettigheder, synlighed i medlemslisten og rækkefølge: Ejer > Admin > Mod > Hjælper > (Vagt/Kunde ...) > Spiller > Bots
+async function ordnRoller(g, d, type, rapport) {
+  await g.roles.fetch();
+  const alle = [...ROLLER.faelles.slice(0, 4), ...ROLLER[type], ROLLER.faelles[4]];
+  for (const r of alle) {
+    const rolle = g.roles.cache.get(d.roller[r.navn]); if (!rolle || rolle.editable === false) continue;
+    const ret = ROLLE_RET[r.navn] || [];
+    await rolle.edit({ hoist: r.navn === 'Spiller' ? true : r.hoist, mentionable: false, permissions: ret, reason: 'Rettigheder' }).catch(e => rapport.push(`Rolle ${r.navn}: ${e.message}`));
+  }
+  // @everyone må ikke pinge alle
+  const ev = g.roles.everyone;
+  if (ev.permissions.has(P.MentionEveryone)) await ev.setPermissions(ev.permissions.remove(P.MentionEveryone)).catch(() => {});
+  // Bots: egen sektion nederst i medlemslisten (bottens egen rolle vises ikke for sig selv)
+  const mig = g.members.me;
+  const botRolle = mig.roles.botRole;
+  if (botRolle?.hoist) await botRolle.edit({ hoist: false }).catch(() => {});
+  let bots = d.roller.Bots && g.roles.cache.get(d.roller.Bots);
+  if (!bots) bots = g.roles.cache.find(x => x.name === 'Bots' && !x.managed) || await g.roles.create({ name: 'Bots', color: 0x64748b, hoist: true, mentionable: false, permissions: [], reason: 'Bots-rolle' }).catch(e => { rapport.push(`Bots-rolle: ${e.message}`); return null; });
+  if (bots) {
+    d.roller.Bots = bots.id;
+    if (!mig.roles.cache.has(bots.id)) await mig.roles.add(bots).catch(() => {});
+    for (const m of (await g.members.fetch().catch(() => new Map())).values()) if (m.user.bot && !m.roles.cache.has(bots.id)) await m.roles.add(bots).catch(() => {});
+  }
+  // Rækkefølge (kun roller under bottens egen rolle kan flyttes)
+  const top = mig.roles.highest.position;
+  const raekke = [...alle.map(r => g.roles.cache.get(d.roller[r.navn])), bots].filter(Boolean);
+  if (raekke.every(r => r.position < top)) {
+    const n = raekke.length;
+    await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: n - i }))).catch(e => rapport.push(`Rolle-rækkefølge: ${e.message}`));
+  } else rapport.push('Rolle-rækkefølge: flyt bottens rolle øverst under Serverindstillinger → Roller, og kør /setup igen.');
+}
 
+// ---------- KANAL-RETTIGHEDER (som HopDop HCF) ----------
+const LAAS = [P.SendMessages, P.CreatePublicThreads, P.CreatePrivateThreads, P.SendMessagesInThreads];
 function rettigheder(g, d, k, staffKat) {
-  const ow = [{ id: g.roles.everyone.id, deny: [P.ViewChannel] }];
   const staff = STAFF_ROLLER.map(r => d.roller[r]).filter(Boolean);
   const spiller = d.roller.Spiller;
-  if (staffKat) {
-    for (const s of staff) ow.push({ id: s, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] });
-    return ow;
-  }
-  if (k.alle) ow[0] = { id: g.roles.everyone.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions] };
+  const ow = [{ id: g.roles.everyone.id, deny: [P.ViewChannel] }];
+  const staffRet = k.voice ? [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.MoveMembers, P.MuteMembers]
+    : [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.AttachFiles, P.EmbedLinks, P.AddReactions, P.ManageThreads, P.ManageMessages];
+  if (staffKat) { for (const s of staff) ow.push({ id: s, allow: staffRet }); return ow; }
+  const laesning = [P.ViewChannel, P.ReadMessageHistory, ...(k.reager ? [P.AddReactions] : [])];
+  const laesNej = [...LAAS, ...(k.reager ? [] : [P.AddReactions])];
+  if (k.alle) ow[0] = { id: g.roles.everyone.id, allow: laesning, deny: laesNej };
   if (k.rolle) {
-    if (d.roller[k.rolle]) ow.push({ id: d.roller[k.rolle], allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] });
+    if (d.roller[k.rolle]) ow.push({ id: d.roller[k.rolle], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions] });
   } else if (spiller) {
-    ow.push(k.las
-      ? { id: spiller, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.AddReactions] }
-      : { id: spiller, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, ...(k.voice ? [P.Connect, P.Speak] : [])] });
+    if (k.voice) ow.push({ id: spiller, allow: [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD] });
+    else if (k.las) ow.push({ id: spiller, allow: laesning, deny: laesNej });
+    else ow.push({ id: spiller, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions], deny: [P.CreatePublicThreads, P.CreatePrivateThreads] });
   }
-  for (const s of staff) ow.push({ id: s, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, ...(k.voice ? [P.Connect, P.Speak] : [])] });
+  for (const r of k.skriv || []) if (d.roller[r]) ow.push({ id: d.roller[r], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.AddReactions] });
+  for (const s of staff) ow.push({ id: s, allow: staffRet });
   return ow;
 }
 
-async function sikrKanal(g, d, noegle, opts) {
+// Finder eller opretter en kanal, og retter navn, emne, cooldown og rettigheder, så de altid passer til skabelonen
+async function sikrKanal(g, d, noegle, opts, rapport, ekstra = {}) {
   let k = d.kanaler[noegle] && await g.channels.fetch(d.kanaler[noegle]).catch(() => null);
-  if (!k) k = await g.channels.create({ ...opts, reason: '/setup' });
+  // Skal være et forum, men er en almindelig kanal: lav forummet, og fjern den gamle, hvis den er tom
+  if (k && opts.type === ChannelType.GuildForum && k.type !== ChannelType.GuildForum) {
+    const ny = await g.channels.create({ ...opts, reason: '/setup' }).catch(e => { rapport.push(`Forum ${opts.name} (kræver Community): ${e.message}`); return null; });
+    if (!ny) return k;
+    const msgs = await k.messages?.fetch({ limit: 10 }).catch(() => null);
+    const tom = !msgs || ![...msgs.values()].some(m => m.author.id !== g.client.user.id);
+    if (tom) await k.delete('Erstattet af forum med galleri').catch(() => {});
+    else await k.setName(`${k.name}-gammel`).catch(() => {});
+    await ny.setPosition(tom ? ny.position : k.position).catch(() => {});
+    k = ny;
+  }
+  if (!k) {
+    k = await g.channels.create({ ...opts, reason: '/setup' }).catch(e => { rapport.push(`${opts.name}: ${e.message}`); return null; });
+    if (!k) return null;
+  } else {
+    const aendr = {};
+    if (k.name !== opts.name) aendr.name = opts.name;
+    if (opts.parent && k.parentId !== opts.parent) aendr.parent = opts.parent;
+    if (opts.topic !== undefined && 'topic' in k && k.topic !== opts.topic) aendr.topic = opts.topic;
+    if (opts.rateLimitPerUser !== undefined && 'rateLimitPerUser' in k && k.rateLimitPerUser !== opts.rateLimitPerUser) aendr.rateLimitPerUser = opts.rateLimitPerUser;
+    if (k.type === ChannelType.GuildForum && opts.defaultForumLayout !== undefined && k.defaultForumLayout !== opts.defaultForumLayout) aendr.defaultForumLayout = opts.defaultForumLayout;
+    if (Object.keys(aendr).length) await k.edit({ ...aendr, reason: '/setup' }).catch(e => rapport.push(`${opts.name}: ${e.message}`));
+    if (opts.permissionOverwrites) await k.permissionOverwrites.set(opts.permissionOverwrites, '/setup').catch(e => rapport.push(`Rettigheder ${opts.name}: ${e.message}`));
+  }
   d.kanaler[noegle] = k.id;
   return k;
+}
+
+// Community (kræves til forummer og velkomstskærm) og sikkerhed som på HopDop HCF
+async function saetCommunity(g, d, rapport) {
+  const k = d.kanaler;
+  const fund = id => id && g.channels.cache.has(id) ? id : undefined;
+  const aendr = { preferredLocale: 'da', verificationLevel: 2, explicitContentFilter: 2, defaultMessageNotifications: 1,
+    rulesChannel: fund(k.regler), publicUpdatesChannel: fund(k.staffchat) || fund(k.botlog), safetyAlertsChannel: fund(k.botlog) };
+  if (!g.features.includes('COMMUNITY')) aendr.features = [...g.features, 'COMMUNITY'];
+  Object.keys(aendr).forEach(n => aendr[n] === undefined && delete aendr[n]);
+  await g.edit({ ...aendr, reason: 'Community-opsætning' }).catch(e => rapport.push(`Community: ${e.message}`));
+}
+// Velkomstskærm (vises til nye medlemmer, kræver Community)
+async function saetVelkomst(g, d, rapport) {
+  const k = d.kanaler;
+  const fund = id => id && g.channels.cache.has(id) ? id : undefined;
+  const velkomst = [['regler', '📜', 'Læs reglerne, og få adgang'], d.type === 'shop' ? ['produkter', '📦', 'Se alle vores produkter'] : ['serverip', '🌐', 'Server-IP og sådan joiner du'],
+    d.type === 'shop' ? ['showcase', '🎬', 'Se vores scripts i aktion'] : ['nyheder', '📢', 'Seneste nyt'], ['chat', '💬', 'Snak med de andre'], ['ticket', '🎫', 'Brug for hjælp? Opret en ticket']]
+    .filter(([n]) => fund(k[n])).map(([n, e, t]) => ({ channel_id: k[n], description: t, emoji_name: e }));
+  await g.client.rest.patch(`/guilds/${g.id}/welcome-screen`, { body: { enabled: true, description: d.type === 'shop' ? 'Scripts, showcases og custom-bestillinger. 🐐' : `Velkommen til ${navnPaa(g)}!`, welcome_channels: velkomst } })
+    .catch(e => rapport.push(`Velkomstskærm: ${e.message}`));
+}
+
+// Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
+const SKABELON_V = 2;
+async function byg(g, d, type) {
+  const rapport = [];
+  for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
+  gem();
+  await g.channels.fetch();
+  const grupper = [...KANALER.start, ...KANALER[type], ...KANALER.slut];
+  const forummer = [];
+  for (const [nr, gr] of grupper.entries()) {
+    const kat = await sikrKanal(g, d, `kat_${gr.id}`, { name: gr.kat, type: ChannelType.GuildCategory, position: nr,
+      permissionOverwrites: gr.staff ? rettigheder(g, d, {}, true) : undefined }, rapport);
+    if (!kat) continue;
+    for (const k of gr.kanaler.filter(k => !k.ikke?.includes(type))) {
+      const opts = { name: k.navn, type: k.voice ? ChannelType.GuildVoice : ChannelType.GuildText, parent: kat.id,
+        permissionOverwrites: rettigheder(g, d, k, gr.staff), ...(k.voice ? {} : { topic: k.topic || '', rateLimitPerUser: k.slow || 0 }) };
+      if (k.forum) { forummer.push([k, opts]); continue; }
+      await sikrKanal(g, d, k.n, opts, rapport);
+    }
+    gem();
+  }
+  // Rækkefølge på kategorierne
+  await g.channels.setPositions(grupper.map((gr, i) => d.kanaler[`kat_${gr.id}`] && { channel: d.kanaler[`kat_${gr.id}`], position: i }).filter(Boolean)).catch(() => {});
+  await saetCommunity(g, d, rapport);
+  // Forummer med galleri (kræver Community)
+  for (const [k, opts] of forummer) {
+    await sikrKanal(g, d, k.n, { ...opts, type: ChannelType.GuildForum, defaultForumLayout: 2 /* galleri */, defaultSortOrder: 1,
+      availableTags: k.forum.tags.map(([name, emoji]) => ({ name, emoji: { id: null, name: emoji }, moderated: true })),
+      defaultReactionEmoji: { id: null, name: k.forum.reaktion } }, rapport)
+      || await sikrKanal(g, d, k.n, opts, rapport); // uden Community: almindelig kanal i stedet
+  }
+  gem();
+  await saetVelkomst(g, d, rapport);
+  await ordnRoller(g, d, type, rapport);
+  d.skabelonV = SKABELON_V; gem();
+  return rapport;
 }
 
 // ---------- /setup ----------
@@ -159,35 +288,21 @@ async function setup(i, type, navn) {
   d.type = type; if (navn) d.navn = navn; d.ip = d.ip || '';
   const t = TYPER[type];
   await i.editReply(`⏳ Sætter **${navnPaa(g)}** op som **${t.navn}**-server. Det tager et øjeblik ...`);
-
-  for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
-  gem();
-
-  const grupper = [...KANALER.start, ...KANALER[type], ...KANALER.slut];
-  for (const [nr, gr] of grupper.entries()) {
-    const katNoegle = `kat_${gr.kat.replace(/[^a-zæøå]/gi, '').toLowerCase()}`;
-    const kat = await sikrKanal(g, d, katNoegle, { name: gr.kat, type: ChannelType.GuildCategory, position: nr,
-      permissionOverwrites: gr.staff ? rettigheder(g, d, {}, true) : [{ id: g.roles.everyone.id, deny: [] }] });
-    for (const k of gr.kanaler.filter(k => !k.ikke?.includes(type))) {
-      await sikrKanal(g, d, k.n, { name: k.navn, type: k.voice ? ChannelType.GuildVoice : ChannelType.GuildText, parent: kat.id,
-        permissionOverwrites: rettigheder(g, d, k, gr.staff) });
-    }
-    gem();
-  }
-
+  const rapport = await byg(g, d, type);
   await postPaneler(g, d);
   d.sat = new Date().toISOString(); gem();
-  await log(g, `✅ **/setup ${type}** kørt af ${i.user}.`);
+  await log(g, `✅ **/setup ${type}** kørt af ${i.user}.${rapport.length ? `\n⚠️ ${rapport.join('\n⚠️ ')}` : ''}`);
   return i.editReply([
     `✅ **${navnPaa(g)}** er sat op som **${t.navn}**-server!`, '',
     `• Roller: ${[...ROLLER.faelles, ...ROLLER[type]].map(r => `<@&${d.roller[r.navn]}>`).join(' ')}`,
     `• Regler med verificerings-knap: <#${d.kanaler.regler}>`,
-    `• Ticket-panel: <#${d.kanaler.ticket}>`, '',
+    `• Ticket-panel: <#${d.kanaler.ticket}>`,
+    ...(rapport.length ? ['', `⚠️ **Det gik ikke helt:**`, ...rapport.slice(0, 8).map(x => `• ${x}`)] : []), '',
     '**Husk:**',
     '**1.** Giv dig selv rollen **Ejer**.',
     ...(type === 'shop' ? [] : ['**2.** Sæt Minecraft-IP\'en, når serveren er klar: `/indstil ip:<ip>`']),
     `**${type === 'shop' ? 2 : 3}.** Kør bare \`/setup\` igen, hvis noget mangler. Botten genbruger det, der allerede findes.`,
-  ].join('\n'));
+  ].join('\n').slice(0, 2000));
 }
 
 async function sendEllerRet(kanal, besked) {
@@ -294,7 +409,31 @@ function start(client, onAlle, HOVED_ID, typer) {
     .then(() => console.log(`Netværk: kommandoer sat på ${g.name}`))
     .catch(e => console.error(`Netværk: kunne ikke sætte kommandoer på ${g.name}:`, e.message));
 
-  onAlle('clientReady', () => { for (const g of andre()) registrer(g); });
+  onAlle('clientReady', async () => {
+    for (const g of andre()) {
+      await registrer(g);
+      // Ny skabelon (fx forummer, rettigheder): opdatér servere, der allerede er sat op
+      const d = info(g);
+      if (d?.type && d.sat && d.skabelonV !== SKABELON_V) {
+        const rapport = await byg(g, d, d.type).catch(e => [e.message]);
+        await postPaneler(g, d).catch(() => {});
+        console.log(`Netværk: ${g.name} er opdateret til skabelon ${SKABELON_V}.${rapport.length ? ' Problemer: ' + rapport.join(' | ') : ''}`);
+        await log(g, `🔄 Serveren er opdateret til den nye skabelon (forummer, rettigheder og medlemsliste).${rapport.length ? `\n⚠️ ${rapport.join('\n⚠️ ')}` : ''}`);
+      }
+    }
+  });
+  // Ping-lås (som på HopDop HCF): kun staff må pinge @everyone, @here og roller
+  onAlle('messageCreate', async m => {
+    try {
+      if (!m.guild || m.guild.id === HOVED_ID || m.author.bot || m.webhookId || m.system || !m.member) return;
+      const d = info(m.guild); if (!d) return;
+      if (!m.mentions.everyone && !m.mentions.roles.size) return;
+      if (erStaff(m.member, d)) return;
+      await m.delete().catch(() => {});
+      const w = await m.channel.send({ content: `${m.author}, du kan ikke tagge roller eller alle. Tag en enkelt person i stedet. 🚫`, allowedMentions: { users: [m.author.id] } }).catch(() => null);
+      if (w) setTimeout(() => w.delete().catch(() => {}), 8000);
+    } catch (e) { console.error('Ping-lås:', e.message); }
+  });
   onAlle('guildCreate', g => { if (g.id !== HOVED_ID) { console.log(`Netværk: botten er tilføjet til ${g.name}`); registrer(g); } });
 
   onAlle('guildMemberAdd', async m => {
@@ -367,7 +506,7 @@ function start(client, onAlle, HOVED_ID, typer) {
 const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.';
 function startShopBot() {
   const { Client, GatewayIntentBits, ActivityType, OAuth2Scopes } = require('discord.js');
-  const shop = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+  const shop = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
   start(shop, shop.on.bind(shop), null, ['shop']);
   shop.once('clientReady', async () => {
     console.log('Gederne Butik Bot er online som', shop.user.tag);
