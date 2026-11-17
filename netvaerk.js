@@ -46,6 +46,12 @@ const TAG_FILTRE = [['Prison', '🔒'], ['KitPvP', '⚔️'], ['HCF', '🏰'], [
   ['Spiller', '🙋'], ['Staff', '🛡️'], ['Økonomi', '💰'], ['Menuer', '📋'], ['Events', '🎉']];
 const KANALER = {
   start: [
+    // Kun for nye (ikke-verificerede): skjult for Spiller, ligesom Velkommen-kategorien på HopDop HCF
+    { id: 'start', kat: '[ 👋 | START HER ]', kanaler: [
+      { n: 'guide', navn: '✅┃sådan-kommer-du-ind', aaben: 'laes', topic: 'Sådan får du adgang til resten af serveren.' },
+      { n: 'sighej', navn: '👋┃sig-hej', aaben: 'skriv', slow: 10, topic: 'Sig hej og præsentér dig selv.' },
+      { n: 'spoergsmaal', navn: '❓┃spørgsmål', aaben: 'skriv', slow: 10, topic: 'Spørg om alt. Staff hjælper dig.' },
+    ] },
     { id: 'info', kat: '[ 📌 | INFORMATION ]', kanaler: [
       { n: 'regler', navn: '📜┃regler', las: true, alle: true, topic: 'Læs reglerne, og tryk på knappen for at få adgang.' },
       { n: 'velkommen', navn: '👋┃velkommen', las: true, topic: 'Nye medlemmer bydes velkommen her.' },
@@ -193,6 +199,13 @@ function rettigheder(g, d, k, staffKat) {
   const staffRet = k.voice ? [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.MoveMembers, P.MuteMembers]
     : [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.AttachFiles, P.EmbedLinks, P.AddReactions, P.ManageThreads, P.ManageMessages];
   if (staffKat) { for (const s of staff) ow.push({ id: s, allow: staffRet }); return ow; }
+  if (k.aaben) {
+    const skriv = k.aaben === 'skriv';
+    ow[0] = { id: g.roles.everyone.id, allow: [P.ViewChannel, P.ReadMessageHistory, ...(skriv ? [P.SendMessages, P.AddReactions] : [])], deny: [P.CreatePublicThreads, P.CreatePrivateThreads, P.MentionEveryone, ...(skriv ? [] : [P.SendMessages, P.AddReactions])] };
+    if (spiller) ow.push({ id: spiller, deny: [P.ViewChannel] }); // verificerede ser dem ikke
+    for (const s of staff) ow.push({ id: s, allow: staffRet });
+    return ow;
+  }
   const laesning = [P.ViewChannel, P.ReadMessageHistory, ...(k.reager ? [P.AddReactions] : [])];
   const laesNej = [...LAAS, ...(k.reager ? [] : [P.AddReactions])];
   if (k.alle) ow[0] = { id: g.roles.everyone.id, allow: laesning, deny: laesNej };
@@ -276,8 +289,67 @@ async function saetVelkomst(g, d, rapport) {
     .catch(e => rapport.push(`Velkomstskærm: ${e.message}`));
 }
 
+// ---------- ONBOARDING (spørgsmål ved join) OG REGELSKÆRM ----------
+const FUNDET = { titel: 'Hvordan fandt du serveren?', enkelt: true, krav: true, valg: [
+  ['Fra: En ven', 'En ven', 'En ven inviterede mig', '🤝'], ['Fra: Minecraft', 'En Minecraft-server', 'Jeg så den på en server', '🎮'],
+  ['Fra: TikTok/YouTube', 'TikTok eller YouTube', 'Fra en video', '🎥'], ['Fra: Google', 'Google', 'Jeg søgte på nettet', '🔎'],
+  ['Fra: Discord', 'En anden Discord', 'Fra en anden Discord-server', '💬'], ['Fra: Andet', 'Andet', 'Noget helt andet', '❔']] };
+const ONBOARDING = {
+  shop: [FUNDET,
+    { titel: 'Hvad vil du bruge serveren til?', enkelt: false, krav: true, valg: [
+      ['Vil: Købe scripts', 'Købe færdige scripts', 'Se og købe vores produkter', '🛒'], ['Vil: Custom script', 'Bestille et custom script', 'Få lavet noget kun til dig', '✍️'],
+      ['Vil: Se showcases', 'Se showcases', 'Se hvad vi har lavet', '🎬'], ['Vil: Support', 'Support', 'Hjælp til noget, jeg har købt', '🛠️'],
+      ['Vil: Kigge', 'Bare kigge', 'Jeg kigger bare rundt', '👀']] },
+    { titel: 'Hvilken type kunde er du?', enkelt: true, krav: true, valg: [
+      ['Type: Serverejer', 'Serverejer', 'Jeg ejer eller driver en server', '👑'], ['Type: Udvikler', 'Udvikler eller skripter', 'Jeg laver selv scripts', '🧑‍💻'],
+      ['Type: Staff', 'Staff på en server', 'Jeg er staff et sted', '🛡️'], ['Type: Spiller', 'Spiller', 'Jeg spiller bare', '🙋']] },
+    { titel: 'Hvilken slags server er det til?', enkelt: false, krav: false, valg: [
+      ['Server: Prison', 'Prison', '', '🔒'], ['Server: KitPvP', 'KitPvP', '', '⚔️'], ['Server: HCF', 'HCF', '', '🏰'],
+      ['Server: Minigames', 'Minigames', '', '🎮'], ['Server: Survival', 'Survival', '', '🌲'], ['Server: Andet', 'Andet', '', '🧺']] },
+    { titel: 'Hvad vil du have besked om?', enkelt: false, krav: false, valg: [
+      ['Ping: Nye produkter', 'Nye produkter', 'Når der kommer noget nyt', '🆕'], ['Ping: Udsalg', 'Udsalg', 'Når der er tilbud', '🏷️'],
+      ['Ping: Opdateringer', 'Opdateringer', 'Når et produkt bliver opdateret', '🔄'], ['Ping: Giveaways', 'Giveaways', 'Når vi giver noget væk', '🎁']] }],
+  prison: [FUNDET,
+    { titel: 'Hvad vil du helst være?', enkelt: true, krav: true, valg: [
+      ['Vil: Fange', 'Fange', 'Jeg vil spille som fange', '⛓️'], ['Vil: Vagt', 'Vagt', 'Jeg vil gerne være vagt', '👮'], ['Vil: Begge', 'Begge dele', 'Jeg prøver det hele', '🤷']] },
+    { titel: 'Hvor meget spiller du?', enkelt: true, krav: false, valg: [
+      ['Spiller: Hver dag', 'Hver dag', '', '🔥'], ['Spiller: Nogle gange', 'Et par gange om ugen', '', '📅'], ['Spiller: Sjældent', 'Engang imellem', '', '🌙']] },
+    { titel: 'Hvad vil du have besked om?', enkelt: false, krav: false, valg: [
+      ['Ping: Nyheder', 'Nyheder', 'Nyt på serveren', '📢'], ['Ping: Events', 'Events', 'Events og konkurrencer', '🎉'], ['Ping: Giveaways', 'Giveaways', 'Når vi giver noget væk', '🎁']] }],
+};
+ONBOARDING.kitpvp = ONBOARDING.uhc = ONBOARDING.andet = [FUNDET, ONBOARDING.prison[3]];
+async function saetOnboarding(g, d, rapport) {
+  const sp = ONBOARDING[d.type]; if (!sp) return;
+  await g.roles.fetch();
+  d.onboarding = d.onboarding || {};
+  const prompts = [];
+  for (const [pi, q] of sp.entries()) {
+    const options = [];
+    for (const [oi, [rolle, titel, besk, emoji]] of q.valg.entries()) {
+      let r = d.onboarding[rolle] && g.roles.cache.get(d.onboarding[rolle]);
+      if (!r) r = g.roles.cache.find(x => x.name === rolle && !x.managed) || await g.roles.create({ name: rolle, mentionable: false, hoist: false, permissions: [], reason: 'Onboarding-rolle' }).catch(e => { rapport.push(`Rolle ${rolle}: ${e.message}`); return null; });
+      if (!r) continue;
+      d.onboarding[rolle] = r.id;
+      options.push({ id: String(1190000000000000000n + BigInt(pi * 100 + oi)), title: titel, ...(besk ? { description: besk } : {}), emoji_name: emoji, role_ids: [r.id], channel_ids: [] });
+    }
+    if (options.length) prompts.push({ id: String(1190000000000900000n + BigInt(pi)), type: 0, title: q.titel, single_select: q.enkelt, required: q.krav, in_onboarding: true, options });
+  }
+  gem();
+  const synlig = id => id && g.channels.cache.get(id)?.permissionsFor(g.roles.everyone)?.has(P.ViewChannel);
+  const standard = Object.values(d.kanaler).filter(synlig).filter(id => g.channels.cache.get(id).type !== ChannelType.GuildCategory);
+  await g.client.rest.put(`/guilds/${g.id}/onboarding`, { body: { enabled: true, mode: 0, default_channel_ids: standard, prompts } })
+    .catch(e => rapport.push(`Onboarding: ${e.message} ${JSON.stringify(e.rawError?.errors || '').slice(0, 250)}`));
+}
+// Discords egen regelskærm: man skal acceptere reglerne, før man kan skrive. Bagefter får man automatisk Spiller.
+async function saetRegelskaerm(g, d, rapport) {
+  await g.client.rest.put(`/guilds/${g.id}/member-verification`, { body: { enabled: true,
+    description: `Velkommen til ${navnPaa(g)}! Læs og accepter reglerne for at få adgang.`,
+    form_fields: [{ field_type: 'TERMS', label: 'Læs og accepter reglerne', required: true, values: REGLER.map(x => x.replace(/^\*\*\d+\.\*\* /, '')) }] } })
+    .catch(e => rapport.push(`Regelskærm: ${e.message}`));
+}
+
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 10;
+const SKABELON_V = 11;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -312,6 +384,8 @@ async function byg(g, d, type) {
   }
   gem();
   await saetVelkomst(g, d, rapport);
+  await saetOnboarding(g, d, rapport);
+  await saetRegelskaerm(g, d, rapport);
   spor(`${g.name}: forummer+velkomst ok`);
   await ordnRoller(g, d, type, rapport);
   spor(`${g.name}: roller ok. ${rapport.join(' | ')}`);
@@ -363,6 +437,15 @@ async function postPaneler(g, d) {
     components: [new ActionRowBuilder().addComponents(...TICKETS[d.type].map(([id, label, emoji]) =>
       new ButtonBuilder().setCustomId(`nv_tk_${id}`).setLabel(label).setEmoji(emoji).setStyle(id === 'anmeld' ? ButtonStyle.Danger : ButtonStyle.Primary)))],
   });
+  const guide = d.kanaler.guide && await g.channels.fetch(d.kanaler.guide).catch(() => null);
+  if (guide) await sendEllerRet(guide, { embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('✅ Sådan kommer du ind')
+    .setDescription([
+      'Du kan kun se denne kategori, fordi du ikke er verificeret endnu. Det tager under et minut:', '',
+      '**1.** Svar på de få spørgsmål, Discord viser dig, når du joiner.',
+      `**2.** Læs og **accepter reglerne** (${d.kanaler.regler ? `<#${d.kanaler.regler}>` : '#regler'}).`,
+      '**3.** Så får du automatisk adgang til hele serveren. 🎉', '',
+      `Virker det ikke? Tryk på knappen i ${d.kanaler.regler ? `<#${d.kanaler.regler}>` : '#regler'}, eller skriv i ${d.kanaler.spoergsmaal ? `<#${d.kanaler.spoergsmaal}>` : '#spørgsmål'}, så hjælper staff dig.`,
+    ].join('\n'))] });
   await opdaterIp(g, d);
 }
 
@@ -480,6 +563,11 @@ function start(client, onAlle, HOVED_ID, typer) {
   });
   onAlle('guildCreate', g => { if (g.id !== HOVED_ID) { console.log(`Netværk: botten er tilføjet til ${g.name}`); registrer(g); } });
 
+  onAlle('guildMemberUpdate', async (gl, ny) => {
+    if (ny.guild.id === HOVED_ID || !gl.pending || ny.pending) return;
+    const d = info(ny.guild); if (!d?.roller?.Spiller || ny.roles.cache.has(d.roller.Spiller)) return;
+    await ny.roles.add(d.roller.Spiller, 'Accepterede reglerne').catch(e => console.error('Auto-Spiller:', e.message));
+  });
   onAlle('guildMemberAdd', async m => {
     if (m.guild.id === HOVED_ID) return;
     const d = info(m.guild); if (!d?.kanaler?.velkommen) return;
@@ -571,7 +659,7 @@ function start(client, onAlle, HOVED_ID, typer) {
 
 // ---------- GEDERNE BUTIK BOT (separat bot) ----------
 // Logo og banner (sættes én gang pr. version: serverikon, bottens profilbillede og -banner)
-const SHOP_GRAFIK = { v: 1,
+const SHOP_GRAFIK = { v: 2,
   logo: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g1.png',
   banner: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g2.jpg' };
 async function saetShopGrafik(shop) {
@@ -581,15 +669,19 @@ async function saetShopGrafik(shop) {
   try {
     const logo = await hent(SHOP_GRAFIK.logo), banner = await hent(SHOP_GRAFIK.banner);
     const ud = [];
-    await shop.user.setAvatar(logo).then(() => ud.push('profilbillede')).catch(e => ud.push(`profilbillede FEJL ${e.message}`));
-    await shop.user.setBanner(banner).then(() => ud.push('profilbanner')).catch(e => ud.push(`profilbanner FEJL ${e.message}`));
+    if (!data._shopbot.profilV) {
+      await shop.user.setAvatar(logo).then(() => ud.push('profilbillede')).catch(e => ud.push(`profilbillede FEJL ${e.message}`));
+      await shop.user.setBanner(banner).then(() => ud.push('profilbanner')).catch(e => ud.push(`profilbanner FEJL ${e.message}`));
+    }
+    // App-ikon og app-banner i Developer Portal (+ "Om mig")
+    await shop.application.edit({ icon: logo, coverImage: banner, description: SHOP_OM_MIG }).then(() => ud.push('app-ikon og app-banner')).catch(e => ud.push(`app-ikon FEJL ${e.message}`));
     for (const g of shop.guilds.cache.values()) {
       await g.setIcon(logo, 'Logo').then(() => ud.push(`ikon ${g.name}`)).catch(e => ud.push(`ikon FEJL ${e.message}`));
       if (g.premiumTier >= 2) await g.setBanner(banner, 'Banner').catch(() => {});
       if (g.premiumTier >= 1) await g.setSplash(banner, 'Banner').catch(() => {});
     }
     spor(`shop-grafik: ${ud.join(', ')}`);
-    if (!ud.some(x => x.includes('FEJL'))) { data._shopbot.grafikV = SHOP_GRAFIK.v; gem(); }
+    if (!ud.some(x => x.includes('FEJL'))) { data._shopbot.grafikV = SHOP_GRAFIK.v; data._shopbot.profilV = 1; gem(); }
   } catch (e) { spor(`shop-grafik fejl: ${e.message}`); }
 }
 const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.';
