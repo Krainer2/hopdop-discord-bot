@@ -71,11 +71,11 @@ const KANALER = {
     { n: 'halloffame', navn: '🏆┃hall-of-fame', las: true, reager: true },
   ] }],
   shop: [{ id: 'shop', kat: '[ 🛒 | SHOP ]', kanaler: [
-    { n: 'produkter', navn: '📦┃produkter', las: true, reager: true, forum: { tags: [['Skript', '📜'], ['Plugin', '🧩'], ['Setup', '🏗️'], ['Gratis', '🎁'], ['Nyt', '🆕'], ['Udsalg', '🏷️']], reaktion: '🔥' },
+    { n: 'produkter', navn: '📦┃produkter', las: true, reager: true, alle: true, forum: { tags: [['Skript', '📜'], ['Plugin', '🧩'], ['Setup', '🏗️'], ['Gratis', '🎁'], ['Nyt', '🆕'], ['Udsalg', '🏷️']], reaktion: '🔥' },
       topic: 'Alle vores produkter. Ét opslag pr. produkt med billeder, pris og beskrivelse. Køb via en ticket i #opret-ticket.' },
-    { n: 'showcase', navn: '🎬┃showcase', las: true, reager: true, forum: { tags: [['Video', '🎥'], ['Billeder', '🖼️'], ['Opdatering', '🆕'], ['Custom', '✍️']], reaktion: '🔥' },
+    { n: 'showcase', navn: '🎬┃showcase', las: true, reager: true, alle: true, forum: { tags: [['Video', '🎥'], ['Billeder', '🖼️'], ['Opdatering', '🆕'], ['Custom', '✍️']], reaktion: '🔥' },
       topic: 'Se vores scripts i aktion. Videoer og billeder af hvad vi har lavet.' },
-    { n: 'priser', navn: '💰┃priser', las: true, reager: true, topic: 'Prisoversigt.' },
+    { n: 'priser', navn: '💰┃priser', las: true, reager: true, alle: true, topic: 'Prisoversigt.' },
     { n: 'opdateringer', navn: '🆕┃opdateringer', las: true, reager: true, topic: 'Nye versioner og rettelser af vores produkter.' },
     { n: 'anmeldelser', navn: '⭐┃anmeldelser', las: true, reager: true, skriv: ['Kunde'], slow: 60, topic: 'Anmeldelser fra kunder. Kun kunder kan skrive her.' },
     { n: 'kundesupport', navn: '🛠️┃kunde-support', rolle: 'Kunde', topic: 'Hjælp til produkter, du har købt.' },
@@ -161,9 +161,9 @@ async function ordnRoller(g, d, type, rapport) {
   // Rækkefølge (kun roller under bottens egen rolle kan flyttes)
   const top = mig.roles.highest.position;
   const raekke = [...alle.map(r => g.roles.cache.get(d.roller[r.navn])), bots].filter(Boolean);
-  if (raekke.every(r => r.position < top)) {
-    const n = raekke.length;
-    await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: n - i }))).catch(e => rapport.push(`Rolle-rækkefølge: ${e.message}`));
+  const n = raekke.length;
+  if (raekke.every(r => r.position < top) && top - n >= 1) {
+    await g.roles.setPositions(raekke.map((r, i) => ({ role: r.id, position: top - 1 - i }))).catch(e => rapport.push(`Rolle-rækkefølge: ${e.message}`));
   } else rapport.push('Rolle-rækkefølge: flyt bottens rolle øverst under Serverindstillinger → Roller, og kør /setup igen.');
 }
 
@@ -238,13 +238,15 @@ async function saetVelkomst(g, d, rapport) {
   const fund = id => id && g.channels.cache.has(id) ? id : undefined;
   const velkomst = [['regler', '📜', 'Læs reglerne, og få adgang'], d.type === 'shop' ? ['produkter', '📦', 'Se alle vores produkter'] : ['serverip', '🌐', 'Server-IP og sådan joiner du'],
     d.type === 'shop' ? ['showcase', '🎬', 'Se vores scripts i aktion'] : ['nyheder', '📢', 'Seneste nyt'], ['chat', '💬', 'Snak med de andre'], ['ticket', '🎫', 'Brug for hjælp? Opret en ticket']]
-    .filter(([n]) => fund(k[n])).map(([n, e, t]) => ({ channel_id: k[n], description: t, emoji_name: e }));
+    .filter(([n]) => fund(k[n]) && g.channels.cache.get(k[n])?.permissionsFor(g.roles.everyone)?.has(P.ViewChannel))
+    .map(([n, e, t]) => ({ channel_id: k[n], description: t, emoji_name: e }));
+  if (!velkomst.length) return;
   await g.client.rest.patch(`/guilds/${g.id}/welcome-screen`, { body: { enabled: true, description: d.type === 'shop' ? 'Scripts, showcases og custom-bestillinger. 🐐' : `Velkommen til ${navnPaa(g)}!`, welcome_channels: velkomst } })
     .catch(e => rapport.push(`Velkomstskærm: ${e.message}`));
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 2;
+const SKABELON_V = 3;
 async function byg(g, d, type) {
   const rapport = [];
   for (const r of [...ROLLER.faelles, ...ROLLER[type]]) await sikrRolle(g, d, r);
