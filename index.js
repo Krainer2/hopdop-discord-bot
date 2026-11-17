@@ -22,6 +22,14 @@ const MESSAGE_CONTENT = (() => {
 })();
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildVoiceStates, ...(MESSAGE_CONTENT ? [GatewayIntentBits.MessageContent] : [])],
   partials: [Partials.Message, Partials.Reaction, Partials.User] });
+// ---------- FLERE DISCORD-SERVERE ----------
+// Alt i denne fil gælder KUN HopDop (GUILD_ID). Events fra de andre servere (Prison, KitPvP, UHC ...) springes over her
+// og håndteres i stedet af netvaerk.js. Beskeder i DM (ingen server) kommer stadig igennem som før.
+const HOVED_ID = process.env.GUILD_ID;
+const onAlle = client.on.bind(client);
+const eventServer = a => !a ? null : (a.constructor?.name === 'Guild' ? a.id : (a.guildId ?? a.guild?.id ?? a.message?.guildId ?? null));
+client.on = (ev, fn) => onAlle(ev, (...a) => { const g = eventServer(a[0]); if (g && g !== HOVED_ID) return; return fn(...a); });
+require('./netvaerk.js')(client, onAlle, HOVED_ID);
 const giveaways = new Map(); // beskedId -> Set(brugerId)
 // Giveaways gemmes i giveaways.json, så de overlever en genstart
 const GW_FIL = 'giveaways.json';

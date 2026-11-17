@@ -28,3 +28,6 @@ layout-fortrudt-*.json
 privat.json
 emojis/
 forbrug.json
+
+# Netværk (de andre Discord-servere)
+servere.json
