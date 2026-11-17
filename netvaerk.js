@@ -570,6 +570,28 @@ function start(client, onAlle, HOVED_ID, typer) {
 }
 
 // ---------- GEDERNE BUTIK BOT (separat bot) ----------
+// Logo og banner (sættes én gang pr. version: serverikon, bottens profilbillede og -banner)
+const SHOP_GRAFIK = { v: 1,
+  logo: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g1.png',
+  banner: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g2.jpg' };
+async function saetShopGrafik(shop) {
+  data._shopbot = data._shopbot || {};
+  if (data._shopbot.grafikV === SHOP_GRAFIK.v) return;
+  const hent = async u => { const r = await fetch(u); if (!r.ok) throw new Error(`download ${r.status}`); return Buffer.from(await r.arrayBuffer()); };
+  try {
+    const logo = await hent(SHOP_GRAFIK.logo), banner = await hent(SHOP_GRAFIK.banner);
+    const ud = [];
+    await shop.user.setAvatar(logo).then(() => ud.push('profilbillede')).catch(e => ud.push(`profilbillede FEJL ${e.message}`));
+    await shop.user.setBanner(banner).then(() => ud.push('profilbanner')).catch(e => ud.push(`profilbanner FEJL ${e.message}`));
+    for (const g of shop.guilds.cache.values()) {
+      await g.setIcon(logo, 'Logo').then(() => ud.push(`ikon ${g.name}`)).catch(e => ud.push(`ikon FEJL ${e.message}`));
+      if (g.premiumTier >= 2) await g.setBanner(banner, 'Banner').catch(() => {});
+      if (g.premiumTier >= 1) await g.setSplash(banner, 'Banner').catch(() => {});
+    }
+    spor(`shop-grafik: ${ud.join(', ')}`);
+    if (!ud.some(x => x.includes('FEJL'))) { data._shopbot.grafikV = SHOP_GRAFIK.v; gem(); }
+  } catch (e) { spor(`shop-grafik fejl: ${e.message}`); }
+}
 const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.';
 function startShopBot() {
   const { Client, GatewayIntentBits, ActivityType, OAuth2Scopes } = require('discord.js');
@@ -577,6 +599,7 @@ function startShopBot() {
   start(shop, shop.on.bind(shop), null, ['shop']);
   shop.once('clientReady', async () => {
     console.log('Gederne Butik Bot er online som', shop.user.tag);
+    await saetShopGrafik(shop);
     shop.user.setPresence({ activities: [{ name: 'Gederne Shop 🐐', type: ActivityType.Watching }], status: 'online' });
     await shop.application.edit({ description: SHOP_OM_MIG }).catch(e => console.error('Shop-bot "Om mig":', e.message));
     console.log('Invitér Gederne Butik Bot:', shop.generateInvite({ scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands], permissions: ['Administrator'] }));
