@@ -303,7 +303,7 @@ const ONBOARDING = {
     { titel: 'Hvilken type kunde er du?', enkelt: true, krav: true, valg: [
       ['Type: Serverejer', 'Serverejer', 'Jeg ejer eller driver en server', '👑'], ['Type: Udvikler', 'Udvikler eller skripter', 'Jeg laver selv scripts', '🧑‍💻'],
       ['Type: Staff', 'Staff på en server', 'Jeg er staff et sted', '🛡️'], ['Type: Spiller', 'Spiller', 'Jeg spiller bare', '🙋']] },
-    { titel: 'Hvilken slags server er det til?', enkelt: false, krav: false, valg: [
+    { titel: 'Hvilken slags server er det til?', enkelt: false, krav: false, efter: true, valg: [
       ['Server: Prison', 'Prison', '', '🔒'], ['Server: KitPvP', 'KitPvP', '', '⚔️'], ['Server: HCF', 'HCF', '', '🏰'],
       ['Server: Minigames', 'Minigames', '', '🎮'], ['Server: Survival', 'Survival', '', '🌲'], ['Server: Andet', 'Andet', '', '🧺']] },
     { titel: 'Hvad vil du have besked om?', enkelt: false, krav: false, valg: [
@@ -332,7 +332,7 @@ async function saetOnboarding(g, d, rapport) {
       d.onboarding[rolle] = r.id;
       options.push({ id: String(1190000000000000000n + BigInt(pi * 100 + oi)), title: titel, ...(besk ? { description: besk } : {}), emoji_name: emoji, role_ids: [r.id], channel_ids: [] });
     }
-    if (options.length) prompts.push({ id: String(1190000000000900000n + BigInt(pi)), type: 0, title: q.titel, single_select: q.enkelt, required: q.krav, in_onboarding: true, options });
+    if (options.length) prompts.push({ id: String(1190000000000900000n + BigInt(pi)), type: 0, title: q.titel, single_select: q.enkelt, required: q.krav, in_onboarding: !q.efter, options });
   }
   gem();
   const synlig = id => id && g.channels.cache.get(id)?.permissionsFor(g.roles.everyone)?.has(P.ViewChannel);
@@ -342,14 +342,14 @@ async function saetOnboarding(g, d, rapport) {
 }
 // Discords egen regelskærm: man skal acceptere reglerne, før man kan skrive. Bagefter får man automatisk Spiller.
 async function saetRegelskaerm(g, d, rapport) {
-  await g.client.rest.put(`/guilds/${g.id}/member-verification`, { body: { enabled: true,
+  await g.client.rest.patch(`/guilds/${g.id}/member-verification`, { body: { enabled: true,
     description: `Velkommen til ${navnPaa(g)}! Læs og accepter reglerne for at få adgang.`,
     form_fields: [{ field_type: 'TERMS', label: 'Læs og accepter reglerne', required: true, values: REGLER.map(x => x.replace(/^\*\*\d+\.\*\* /, '')) }] } })
     .catch(e => rapport.push(`Regelskærm: ${e.message}`));
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 11;
+const SKABELON_V = 12;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
