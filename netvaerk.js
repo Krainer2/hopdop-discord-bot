@@ -93,7 +93,7 @@ const KANALER = {
   ] }],
   shop: [{ id: 'shop', kat: '[ 🛒 | SHOP ]', kanaler: [
     { n: 'produkter', navn: '📦┃produkter', las: true, reager: true, alle: true, forum: { tags: [...TAG_TYPE, ...TAG_FILTRE, ['Gratis', '🎁'], ['Udsalg', '🏷️'], ['Nyt', '🆕'], ['Populær', '⭐']], reaktion: '🔥' },
-      topic: 'Alle vores produkter. Ét opslag pr. produkt med billeder, pris og beskrivelse. Køb via en ticket i #opret-ticket.' },
+      topic: 'Alle vores produkter. Ét opslag pr. produkt med billeder, pris og beskrivelse. Køb via en ticket i #opret-ticket. Se også shoppen på https://gederneshop.pages.dev' },
     { n: 'showcase', navn: '🎬┃showcase', las: true, reager: true, alle: true, forum: { tags: [['Video', '🎥'], ['Billeder', '🖼️'], ...TAG_FILTRE, ['Custom', '✍️'], ['Opdatering', '🆕']], reaktion: '🔥' },
       topic: 'Se vores scripts i aktion. Videoer og billeder af hvad vi har lavet.' },
     { n: 'priser', navn: '💰┃priser', las: true, reager: true, alle: true, topic: 'Prisoversigt.' },
@@ -418,7 +418,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 29;
+const SKABELON_V = 30;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -821,6 +821,7 @@ async function opdaterStats(g, d) {
     linjer.push(['stat_produkter', `📦┃Produkter: ${produkter}`]);
     const { snit, antal } = anmSnit(d);
     linjer.push(['stat_anm', antal ? `⭐┃Bedømmelse: ${komma(snit)}/5 (${antal})` : '⭐┃Bedømmelse: ingen endnu']);
+    linjer.push(['stat_web', '🌐┃gederneshop.pages.dev']);
   } else if (d.type === 'prison') linjer.push(['stat_vagter', `👮┃Vagter: ${antalMed('Vagt')}`]);
   for (const [n, navn] of linjer) {
     let c = d.kanaler[n] && await g.channels.fetch(d.kanaler[n]).catch(() => null);
@@ -1462,7 +1463,15 @@ async function saetShopGrafik(shop) {
     if (!ud.some(x => x.includes('FEJL'))) { data._shopbot.grafikV = SHOP_GRAFIK.v; data._shopbot.profilV = 1; gem(); }
   } catch (e) { spor(`shop-grafik fejl: ${e.message}`); }
 }
-const SHOP_OM_MIG = 'Botten bag Gederne Shop 🐐\nKøb scripts, se showcases og bestil custom scripts. Opret en ticket i #opret-ticket.\n\n📨 Join: https://discord.gg/EaDhda9TjA';
+const SHOP_WEB = 'https://gederneshop.pages.dev';
+const SHOP_OM_MIG = [
+  '🐐 Botten bag Gederne Shop',
+  'Danske Minecraft-scripts og plugins, lavet med omhu. Køb færdige produkter, se showcases eller bestil dit helt eget custom script.',
+  '',
+  `🌐 Shop: ${SHOP_WEB}`,
+  '📨 Discord: https://discord.gg/EaDhda9TjA',
+  '🎫 Køb og support: opret en ticket i #opret-ticket',
+].join('\n');
 function startShopBot() {
   const { Client, GatewayIntentBits, ActivityType, OAuth2Scopes } = require('discord.js');
   const shop = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
@@ -1470,7 +1479,8 @@ function startShopBot() {
   shop.once('clientReady', async () => {
     console.log('Gederne Butik Bot er online som', shop.user.tag);
     await saetShopGrafik(shop);
-    shop.user.setPresence({ activities: [{ name: 'Gederne Shop 🐐', type: ActivityType.Watching }], status: 'online' });
+    const status = () => shop.user.setPresence({ activities: [{ type: ActivityType.Custom, name: 'custom', state: '🌐 Browser rundt på gederneshop.pages.dev' }], status: 'online' });
+    status(); setInterval(status, 30 * 60000).unref?.();
     await shop.application.edit({ description: SHOP_OM_MIG }).catch(e => console.error('Shop-bot "Om mig":', e.message));
     console.log('Invitér Gederne Butik Bot:', shop.generateInvite({ scopes: [OAuth2Scopes.Bot, OAuth2Scopes.ApplicationsCommands], permissions: ['Administrator'] }));
   });
