@@ -364,7 +364,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 16;
+const SKABELON_V = 17;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
