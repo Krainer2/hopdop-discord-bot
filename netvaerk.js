@@ -653,7 +653,14 @@ async function postOpslag(client) {
       const d = info(g); if (!d?.sat || d.type !== o.type) continue;
       const forum = d.kanaler[o.kanal] && await g.channels.fetch(d.kanaler[o.kanal]).catch(() => null);
       if (!forum || forum.type !== ChannelType.GuildForum) continue;
-      const tekst = String(o.tekst || '').replace(/\{ticket\}/g, d.kanaler.ticket ? `<#${d.kanaler.ticket}>` : '#opret-ticket').slice(0, 2000);
+      let tekst = String(o.tekst || '').replace(/\{ticket\}/g, d.kanaler.ticket ? `<#${d.kanaler.ticket}>` : '#opret-ticket');
+      // {@navn} bliver til et tag af personen, hvis vedkommende er på serveren
+      for (const [hel, navn] of [...tekst.matchAll(/\{@([^}]+)\}/g)]) {
+        const fundet = await g.members.search({ query: navn, limit: 5 }).catch(() => null);
+        const m = fundet && [...fundet.values()].find(x => [x.user.username, x.user.globalName, x.displayName].some(n => n && n.toLowerCase().startsWith(navn.toLowerCase())));
+        tekst = tekst.replace(hel, m ? `<@${m.id}>` : `**@${navn}**`);
+      }
+      tekst = tekst.slice(0, 2000);
       const tags = forum.availableTags.filter(t => (o.tags || []).includes(t.name)).map(t => t.id).slice(0, 5);
       d.opslag = d.opslag || {};
       const gl = d.opslag[o.id] && await g.channels.fetch(d.opslag[o.id]).catch(() => null);
@@ -665,8 +672,14 @@ async function postOpslag(client) {
           if (tags.join() !== gl.appliedTags.join()) await gl.setAppliedTags(tags);
           continue;
         }
-        const t = await forum.threads.create({ name: o.titel.slice(0, 100), appliedTags: tags, reason: 'Produktopslag',
-          message: { content: tekst, files: (o.billeder || []).slice(0, 10).map((u, i) => ({ attachment: u, name: `${o.id}-${i + 1}.${(u.match(/\.(png|jpe?g|gif|webp)/i) || [, 'png'])[1]}` })) } });
+        const filer = (o.billeder || []).slice(0, 10).map((u, i) => ({ attachment: u, name: `${o.id}-${i + 1}.${(u.match(/\.(png|jpe?g|gif|webp)/i) || [, 'png'])[1]}` }));
+        const lav = msg => forum.threads.create({ name: o.titel.slice(0, 100), appliedTags: tags, reason: 'Produktopslag', message: msg });
+        const t = await lav({ content: tekst, files: filer }).catch(async e => {
+          spor(`opslag ${o.id}: billederne kunne ikke uploades (${e.message}), poster med links i stedet`);
+          const t2 = await lav({ content: tekst });
+          if (o.billeder?.length) await t2.send({ content: o.billeder.join('\n') }).catch(() => {});
+          return t2;
+        });
         d.opslag[o.id] = t.id; gem();
         spor(`${g.name}: postede opslaget "${o.titel}" i ${forum.name}`);
         await log(g, '📦 Nyt opslag', [`**${o.titel}** er lagt op i ${forum}.`, t.url], 0x22c55e).catch(() => {});
