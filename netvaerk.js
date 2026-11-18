@@ -416,7 +416,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 27;
+const SKABELON_V = 28;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -535,6 +535,7 @@ function reklameGuide(d, navn) {
       '**3.** Skriv 3-5 **konkrete grunde** til at joine. Tal og navne virker bedre end "sjov server".',
       '**4.** Slut af med **IP/hjemmeside** og **Discord-link**.',
       '**5.** Brug emojis og **fed skrift**, men hold det kort. Under 15 linjer er bedst.',
+      '**6.** 🖼️ **Vedhæft et billede eller banner!** Opslag med billede bliver set og klikket langt mere.',
       '',
       '### ✍️ Skabelon (kopiér og udfyld)',
       '```',
@@ -549,6 +550,7 @@ function reklameGuide(d, navn) {
       '🌐 **IP/side:** [ip eller hjemmeside]',
       '💬 **Discord:** [invite-link]',
       '```',
+      '📎 Husk at vedhæfte et **billede/banner** til opslaget.',
       '👇 Se et færdigt eksempel herunder.',
       `🤝 Vil du have et fast samarbejde i stedet? Se <#${d.kanaler.partnere || ''}>.`,
     ].join('\n'));
@@ -568,6 +570,7 @@ function reklameEksempel(d) {
     '',
     '🌐 **IP:** play.eksempel.dk',
     '💬 **Discord:** discord.gg/eksempel',
+    '🖼️ *+ vedhæftet banner af serveren*',
   ] : [
     '# ⚔️ HOPDOP | Rigtig 1.8 PvP. Kun for de bedste.',
     'Dansk **HCF Kits**-server på **1.8.9**. Lav dit team, find allierede, og tag KOTH.',
@@ -583,9 +586,10 @@ function reklameEksempel(d) {
     '🌐 **IP:** `hopdop.superawesome.dk`',
     '🖥️ **Hjemmeside:** hopdop.pages.dev',
     '💬 **Discord:** discord.gg/53fAaeMGqP',
+    '🖼️ *+ vedhæftet banner af serveren*',
   ];
   return new EmbedBuilder().setColor(0x22c55e).setTitle('👀 Eksempel på et godt opslag').setDescription(e.join('\n'))
-    .setFooter({ text: 'Fængende start, konkrete grunde og links, der virker. Sådan får du flest joins.' });
+    .setFooter({ text: 'Fængende start, konkrete grunde, et flot billede og links, der virker. Sådan får du flest joins.' });
 }
 
 // Tjekker nye reklame-opslag: skal have et Discord-invite. Ellers slettes det med en kort forklaring.
