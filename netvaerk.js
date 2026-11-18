@@ -112,14 +112,14 @@ const KANALER = {
       { n: 'boostervoice', navn: '💜┃Booster-snak', voice: true, rolle: 'Booster' },
     ] },
     { id: 'support', kat: '[ 🎫 | SUPPORT ]', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true, topic: 'Tryk på en knap for at oprette en ticket.' },
-      { n: 'ticketarkiv', navn: '📁┃ticket-arkiv', las: true, topic: 'Her gemmes lukkede tickets som private tråde. Du kan kun se dine egne.' }] },
+      { n: 'ticketarkiv', navn: '📁┃ticket-arkiv', las: true, kunTop: true, topic: 'Her gemmes lukkede tickets som private tråde. Du kan kun se dine egne.' }] },
     { id: 'voice', kat: '[ 🔊 | SNAK ]', kanaler: [
       { n: 'voice1', navn: '💬┃Hyggesnak 1', voice: true },
       { n: 'voice2', navn: '💬┃Hyggesnak 2', voice: true },
     ] },
     { id: 'staff', kat: '[ 🛡️ | STAFF ]', staff: true, kanaler: [
       { n: 'staffchat', navn: '🛡️┃staff-chat' },
-      { n: 'ticketlog', navn: '📋┃ticket-log' },
+      { n: 'ticketlog', navn: '📋┃ticket-log', kunTop: true },
       { n: 'botlog', navn: '📋┃bot-log' },
     ] },
   ],
@@ -184,6 +184,9 @@ function reglerEmbeds(d, navn, f) {
 const info = g => data[g.id] || null;
 const navnPaa = g => info(g)?.navn || g.name;
 const farve = g => TYPER[info(g)?.type]?.farve || 0x22c55e;
+// Kun Ejer og Admin (og folk med Administrator) må lukke/slette tickets og rydde i ticket-arkivet
+const TOP_ROLLER = ['Ejer', 'Admin'];
+const erTop = (m, d) => m.permissions.has(P.Administrator) || m.guild.ownerId === m.id || TOP_ROLLER.some(r => d?.roller?.[r] && m.roles.cache.has(d.roller[r]));
 const erStaff = (m, d) => m.permissions.has(P.Administrator) || m.guild.ownerId === m.id || STAFF_ROLLER.some(r => d?.roller?.[r] && m.roles.cache.has(d.roller[r]));
 const svar = (i, tekst, ekstra = {}) => (i.replied || i.deferred ? i.editReply({ content: tekst, ...ekstra }) : i.reply({ content: tekst, flags: MessageFlags.Ephemeral, ...ekstra })).catch(() => {});
 
@@ -257,13 +260,16 @@ function rettigheder(g, d, k, staffKat) {
   const ow = [{ id: g.roles.everyone.id, deny: [P.ViewChannel] }];
   const staffRet = k.voice ? [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.MoveMembers, P.MuteMembers]
     : [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.AttachFiles, P.EmbedLinks, P.AddReactions, P.ManageThreads, P.ManageMessages];
-  if (staffKat) { for (const s of staff) ow.push({ id: s, allow: staffRet }); return ow; }
+  const lavere = new Set(STAFF_ROLLER.filter(r => !TOP_ROLLER.includes(r)).map(r => d.roller[r]).filter(Boolean));
+  const SLET = [P.ManageMessages, P.ManageThreads, P.ManageChannels];
+  const staffOw = s => k.kunTop && lavere.has(s) ? { id: s, allow: staffRet.filter(x => !SLET.includes(x)), deny: SLET } : { id: s, allow: staffRet };
+  if (staffKat) { for (const s of staff) ow.push(staffOw(s)); return ow; }
   if (k.aaben) {
     const skriv = k.aaben === 'skriv';
     ow[0] = { id: g.roles.everyone.id, allow: [P.ViewChannel, P.ReadMessageHistory, ...(skriv ? [P.SendMessages, P.AddReactions] : [])], deny: [P.CreatePublicThreads, P.CreatePrivateThreads, P.MentionEveryone, ...(skriv ? [] : [P.SendMessages, P.AddReactions])] };
     // verificerede (Spiller, Kunde, Vagt ...) ser dem ikke. Staff kan stadig se dem for at hjælpe nye.
     for (const [navn, id] of Object.entries(d.roller)) if (!STAFF_ROLLER.includes(navn) && navn !== 'Bots' && id) ow.push({ id, deny: [P.ViewChannel] });
-    for (const s of staff) ow.push({ id: s, allow: staffRet });
+    for (const s of staff) ow.push(staffOw(s));
     return ow;
   }
   const laesning = [P.ViewChannel, P.ReadMessageHistory, ...(k.reager ? [P.AddReactions] : [])];
@@ -278,7 +284,7 @@ function rettigheder(g, d, k, staffKat) {
     else ow.push({ id: spiller, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions], deny: [P.CreatePublicThreads, P.CreatePrivateThreads] });
   }
   for (const r of k.skriv || []) if (d.roller[r]) ow.push({ id: d.roller[r], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks, P.AddReactions] });
-  for (const s of staff) ow.push({ id: s, allow: staffRet });
+  for (const s of staff) ow.push(staffOw(s));
   return ow;
 }
 
@@ -410,7 +416,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 25;
+const SKABELON_V = 26;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -878,7 +884,9 @@ async function aabnTicket(i, slags, svarFelter = null) {
     permissionOverwrites: [
       { id: g.roles.everyone.id, deny: [P.ViewChannel] },
       { id: i.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles] },
-      ...staff.map(s => ({ id: s, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles] })),
+      ...staff.map(s => TOP_ROLLER.some(r => d.roller[r] === s)
+        ? { id: s, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles] }
+        : { id: s, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles], deny: [P.ManageMessages, P.ManageChannels, P.ManageThreads] }),
     ],
   });
   await kanal.send({ content: `${i.user}`, embeds: [new EmbedBuilder().setColor(farve(g)).setAuthor({ name: navnPaa(g) })
@@ -897,7 +905,7 @@ async function lukTicket(i) {
   const g = i.guild, d = info(g), kanal = i.channel;
   const ejer = String(kanal.topic || '').replace('ticket:', '');
   if (!String(kanal.topic || '').startsWith('ticket:')) return svar(i, '❌ Det her er ikke en ticket.');
-  if (ejer !== i.user.id && !erStaff(i.member, d)) return svar(i, '❌ Kun den der lavede ticketen eller staff kan lukke den.');
+  if (ejer !== i.user.id && !erTop(i.member, d)) return svar(i, '❌ Kun den, der lavede ticketen, Ejer eller Admin kan lukke den.');
   await i.reply({ content: '🔒 Ticketen gemmes og lukkes om et øjeblik ...' });
   const arkiv = await gemSamtale(g, d, kanal, ejer, i.user).catch(e => { spor(`ticket-arkiv: ${e.message}`); return null; });
   const knap = arkiv ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Se samtalen').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(arkiv.url))] : [];
