@@ -643,6 +643,38 @@ async function tjekReklame(t, d) {
     .setDescription(`Dit opslag **${t.name}** blev fjernet, fordi ${grund}`)] }).catch(() => {});
 }
 
+// ---------- Produktopslag fra opslag.json (lægges på hosten, ikke i git) ----------
+// [{ id, type: 'shop', kanal: 'produkter', titel, tags: ['Plugin', ...], tekst, billeder: [url, ...] }]
+// Nyt id = nyt opslag. Samme id igen = teksten, titlen og tags rettes i det eksisterende opslag.
+async function postOpslag(client) {
+  let koe; try { koe = JSON.parse(fs.readFileSync(require('path').join(__dirname, 'opslag.json'), 'utf8')); } catch { return; }
+  for (const o of Array.isArray(koe) ? koe : []) {
+    for (const g of client.guilds.cache.values()) {
+      const d = info(g); if (!d?.sat || d.type !== o.type) continue;
+      const forum = d.kanaler[o.kanal] && await g.channels.fetch(d.kanaler[o.kanal]).catch(() => null);
+      if (!forum || forum.type !== ChannelType.GuildForum) continue;
+      const tekst = String(o.tekst || '').replace(/\{ticket\}/g, d.kanaler.ticket ? `<#${d.kanaler.ticket}>` : '#opret-ticket').slice(0, 2000);
+      const tags = forum.availableTags.filter(t => (o.tags || []).includes(t.name)).map(t => t.id).slice(0, 5);
+      d.opslag = d.opslag || {};
+      const gl = d.opslag[o.id] && await g.channels.fetch(d.opslag[o.id]).catch(() => null);
+      try {
+        if (gl) {
+          const start = await gl.fetchStarterMessage().catch(() => null);
+          if (start && start.content !== tekst) await start.edit({ content: tekst });
+          if (gl.name !== o.titel) await gl.setName(o.titel.slice(0, 100));
+          if (tags.join() !== gl.appliedTags.join()) await gl.setAppliedTags(tags);
+          continue;
+        }
+        const t = await forum.threads.create({ name: o.titel.slice(0, 100), appliedTags: tags, reason: 'Produktopslag',
+          message: { content: tekst, files: (o.billeder || []).slice(0, 10).map((u, i) => ({ attachment: u, name: `${o.id}-${i + 1}.${(u.match(/\.(png|jpe?g|gif|webp)/i) || [, 'png'])[1]}` })) } });
+        d.opslag[o.id] = t.id; gem();
+        spor(`${g.name}: postede opslaget "${o.titel}" i ${forum.name}`);
+        await log(g, '📦 Nyt opslag', [`**${o.titel}** er lagt op i ${forum}.`, t.url], 0x22c55e).catch(() => {});
+      } catch (e) { spor(`opslag ${o.id}: ${e.message}`); }
+    }
+  }
+}
+
 async function postPaneler(g, d) {
   const f = farve(g), navn = navnPaa(g);
   const regler = await g.channels.fetch(d.kanaler.regler).catch(() => null);
@@ -1064,6 +1096,7 @@ function start(client, onAlle, HOVED_ID, typer) {
   onAlle('clientReady', async () => {
     spor(`klar: ${client.user?.tag} med ${andre().length} servere`);
     await findInvites(client);
+    setTimeout(() => postOpslag(client).catch(e => spor(`opslag: ${e.message}`)), 50000).unref?.();
     const stats = () => { for (const g of andre()) opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); };
     setTimeout(stats, 60000).unref?.(); setInterval(stats, 10 * 60000).unref?.();
     setTimeout(async () => { for (const g of andre()) { const d = info(g); if (!d?.sat) continue;
