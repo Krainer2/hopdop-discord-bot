@@ -667,7 +667,11 @@ async function opdaterAnmPanel(g, d) {
     .setDescription([
       antal ? `## ${stjerner(Math.round(snit))}  ${komma(snit)} / 5` : '## Ingen anmeldelser endnu',
       antal ? `Baseret på **${antal}** anmeldelse${antal === 1 ? '' : 'r'} fra verificerede kunder.` : 'Bliv den første til at anmelde et produkt!', '',
-      '**Har du købt noget?** Skriv **/anmeld**, vælg produkt og antal stjerner, og skriv hvad du synes.',
+      '**Sådan skriver du en anmeldelse:**',
+      '**1.** Skriv **/anmeld** i en kanal.',
+      '**2.** Vælg **produkt** og **stjerner**.',
+      '**3.** Tryk **Enter**. Skriv ikke noget efter stjernerne!',
+      '**4.** Nu åbner en **formular**, hvor du skriver en overskrift og din anmeldelse. Tryk **Indsend**.',
       `Kun kunder (rollen ${d.roller.Kunde ? `<@&${d.roller.Kunde}>` : 'Kunde'}) kan anmelde. Du kan altid rette din anmeldelse ved at anmelde samme produkt igen.`,
     ].join('\n'))] });
 }
@@ -739,10 +743,12 @@ const lavKommandoer = typer => [
   new SlashCommandBuilder().setName('afvis').setDescription('Afvis et forslag (staff)').setDefaultMemberPermissions(P.ManageMessages)
     .addStringOption(o => o.setName('sid').setDescription('Forslagets sID (står i bunden af forslaget)').setRequired(true).setMaxLength(10))
     .addStringOption(o => o.setName('svar').setDescription('Begrundelse (valgfri)').setMaxLength(500)),
-  ...(typer.includes('shop') ? [new SlashCommandBuilder().setName('anmeld').setDescription('Skriv en anmeldelse af et produkt, du har købt')
-    .addStringOption(o => o.setName('produkt').setDescription('Hvilket produkt?').setRequired(true).setMaxLength(80).setAutocomplete(true))
-    .addIntegerOption(o => o.setName('stjerner').setDescription('Hvor mange stjerner?').setRequired(true)
-      .addChoices({ name: '⭐⭐⭐⭐⭐ Fantastisk', value: 5 }, { name: '⭐⭐⭐⭐ Rigtig godt', value: 4 }, { name: '⭐⭐⭐ Godt', value: 3 }, { name: '⭐⭐ Okay', value: 2 }, { name: '⭐ Dårligt', value: 1 }))] : []),
+  ...(typer.includes('shop') ? [new SlashCommandBuilder().setName('anmeld').setDescription('Vælg produkt og stjerner, tryk Enter. Så åbner en formular, hvor du skriver din anmeldelse')
+    .addStringOption(o => o.setName('produkt').setDescription('Trin 1: Hvilket produkt har du købt?').setRequired(true).setMaxLength(80).setAutocomplete(true))
+    .addIntegerOption(o => o.setName('stjerner').setDescription('Trin 2: Vælg stjerner og tryk Enter. Teksten skriver du i formularen bagefter').setRequired(true)
+      .addChoices({ name: '⭐⭐⭐⭐⭐ Fantastisk', value: 5 }, { name: '⭐⭐⭐⭐ Rigtig godt', value: 4 }, { name: '⭐⭐⭐ Godt', value: 3 }, { name: '⭐⭐ Okay', value: 2 }, { name: '⭐ Dårligt', value: 1 })),
+    new SlashCommandBuilder().setName('fjernanmeldelse').setDescription('Fjern en anmeldelse (staff kan fjerne alle, kunder deres egne)')
+      .addStringOption(o => o.setName('anmeldelse').setDescription('Vælg anmeldelsen på listen').setRequired(true).setAutocomplete(true))] : []),
   new SlashCommandBuilder().setName('invite').setDescription('Få invite-linket til serveren, så du kan invitere dine venner'),
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
   new SlashCommandBuilder().setName('say').setDescription('Lad botten skrive en besked (kun staff)')
@@ -841,6 +847,17 @@ function start(client, onAlle, HOVED_ID, typer) {
     try {
       const d = info(i.guild);
       // Forslag på produkter: navne fra #produkter-forummet
+      if (i.isAutocomplete() && i.commandName === 'fjernanmeldelse') {
+        const staff = d && erStaff(i.member, d), s = i.options.getFocused().toLowerCase();
+        const liste = Object.entries(d?.anmeldelser || {}).filter(([, a]) => staff || a.user === i.user.id);
+        const valg = [];
+        for (const [noegle, a] of liste) {
+          const m = i.guild.members.cache.get(a.user);
+          const navn = `${a.produkt} · ${'⭐'.repeat(a.stjerner)} · ${m?.displayName || 'ukendt'}`;
+          if (navn.toLowerCase().includes(s)) valg.push({ name: navn.slice(0, 100), value: noegle.slice(0, 100) });
+        }
+        return i.respond(valg.slice(0, 25)).catch(() => {});
+      }
       if (i.isAutocomplete() && i.commandName === 'anmeld') {
         const f = d?.kanaler.produkter && await i.guild.channels.fetch(d.kanaler.produkter).catch(() => null);
         const navne = f?.threads ? [...(await f.threads.fetchActive().catch(() => null))?.threads.filter(t => t.parentId === f.id).values() || [], ...(await f.threads.fetchArchived({ limit: 50 }).catch(() => null))?.threads.values() || []].map(t => t.name) : [];
@@ -969,6 +986,18 @@ function start(client, onAlle, HOVED_ID, typer) {
           const u = await i.client.users.fetch(f.user).catch(() => null);
           if (u) u.send(`Dit forslag på **${navnPaa(i.guild)}** er blevet **${ok ? 'godkendt ✅' : 'afvist ❌'}**: "${f.tekst.slice(0, 200)}"${begr ? `\nBegrundelse: ${begr}` : ''}`).catch(() => {});
           return svar(i, `Forslag \`${sid}\` er ${ok ? 'godkendt' : 'afvist'}.`);
+        }
+        if (i.commandName === 'fjernanmeldelse') {
+          const noegle = i.options.getString('anmeldelse'), a = d?.anmeldelser?.[noegle];
+          if (!a) return svar(i, '❌ Fandt ikke den anmeldelse. Vælg en fra listen, der dukker op.');
+          if (a.user !== i.user.id && !erStaff(i.member, d)) return svar(i, '❌ Du kan kun fjerne dine egne anmeldelser.');
+          const k = await i.guild.channels.fetch(d.kanaler.anmeldelser).catch(() => null);
+          const msg = k && await k.messages.fetch(a.msg).catch(() => null);
+          if (msg) await msg.delete().catch(() => {});
+          delete d.anmeldelser[noegle]; gem();
+          await opdaterAnmPanel(i.guild, d); statsSnart(i.guild);
+          await log(i.guild, '🗑️ Anmeldelse fjernet', [`${i.user} fjernede <@${a.user}>'s anmeldelse af **${a.produkt}** (${'⭐'.repeat(a.stjerner)}).`]);
+          return svar(i, `🗑️ Anmeldelsen af **${a.produkt}** er fjernet.`);
         }
         if (i.commandName === 'anmeld') {
           if (!d?.roller.Kunde) return svar(i, '❌ Anmeldelser er ikke sat op her.');
