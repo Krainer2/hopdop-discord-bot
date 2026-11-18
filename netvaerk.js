@@ -62,6 +62,8 @@ const KANALER = {
     { id: 'community', kat: '[ 💬 | COMMUNITY ]', kanaler: [
       { n: 'chat', navn: '💬┃chat', slow: 3, topic: 'Snak om alt muligt. Hold en god tone.' },
       { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Her bruger du bottens kommandoer, fx /forslag, /anmeld og /invite. De virker kun i denne kanal.' },
+      { n: 'hjaelp', navn: '🤝┃hjælp-hinanden', slow: 600, traade: true,
+        topic: 'Spørg om hjælp og hjælp andre! Lav en tråd til dit spørgsmål (+ øverst eller "Opret tråd"). I tråde er der ingen cooldown, og du kan tagge folk og sende billeder.' },
       { n: 'forslag', navn: '💡┃forslag', las: true, reager: true, topic: 'Stem på forslag med reaktioner. Lav et forslag: skriv /forslag i #bot-kommandoer.' },
       { n: 'medier', navn: '🖼️┃medier', slow: 10, kun: ['shop'], topic: 'Billeder og videoer af dine builds, servere og setups.' },
       { n: 'scripting', navn: '💻┃skript-snak', slow: 3, kun: ['shop'], topic: 'Snak om Skript, plugins og udvikling. Hjælp hinanden.' },
@@ -97,7 +99,6 @@ const KANALER = {
     { n: 'priser', navn: '💰┃priser', las: true, reager: true, alle: true, topic: 'Prisoversigt.' },
     { n: 'opdateringer', navn: '🆕┃opdateringer', las: true, reager: true, topic: 'Nye versioner og rettelser af vores produkter.' },
     { n: 'anmeldelser', navn: '⭐┃anmeldelser', las: true, reager: true, alle: true, topic: 'Anmeldelser fra vores kunder. Har du købt noget? Skriv /anmeld.' },
-    { n: 'kundesupport', navn: '🛠️┃kunde-support', rolle: 'Kunde', topic: 'Hjælp til produkter, du har købt.' },
   ] }],
   andet: [],
   slut: [
@@ -169,9 +170,13 @@ const ROLLE_RET = {
   Mod: [P.ViewAuditLog, P.KickMembers, P.ModerateMembers, P.ManageMessages, P.ManageThreads, P.ManageNicknames, P.MoveMembers, P.MuteMembers, P.MentionEveryone],
   Hjælper: [P.ModerateMembers, P.ManageMessages, P.MoveMembers],
 };
+const ROLLE_VIS = { shop: { Spiller: 'Geder' } };
+const visNavn = (type, navn) => ROLLE_VIS[type]?.[navn] || navn;
 async function sikrRolle(g, d, r) {
+  const vis = visNavn(d.type, r.navn);
   let rolle = d.roller[r.navn] && await g.roles.fetch(d.roller[r.navn]).catch(() => null);
-  if (!rolle) rolle = g.roles.cache.find(x => x.name === r.navn && !x.managed) || await g.roles.create({ name: r.navn, color: r.farve, hoist: r.hoist, mentionable: false, permissions: [], reason: '/setup' });
+  if (!rolle) rolle = g.roles.cache.find(x => (x.name === vis || x.name === r.navn) && !x.managed) || await g.roles.create({ name: vis, color: r.farve, hoist: r.hoist, mentionable: false, permissions: [], reason: '/setup' });
+  if (rolle.name !== vis) await rolle.setName(vis, 'Rollenavn').catch(() => {});
   d.roller[r.navn] = rolle.id;
   return rolle;
 }
@@ -243,6 +248,7 @@ function rettigheder(g, d, k, staffKat) {
   } else if (spiller) {
     if (k.voice) ow.push({ id: spiller, allow: [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD] });
     else if (k.las) ow.push({ id: spiller, allow: laesning, deny: laesNej });
+    else if (k.traade) ow.push({ id: spiller, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions, P.CreatePublicThreads, P.SendMessagesInThreads], deny: [P.CreatePrivateThreads] });
     else ow.push({ id: spiller, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions], deny: [P.CreatePublicThreads, P.CreatePrivateThreads] });
   }
   for (const r of k.skriv || []) if (d.roller[r]) ow.push({ id: d.roller[r], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks, P.AddReactions] });
@@ -378,7 +384,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 21;
+const SKABELON_V = 22;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -398,6 +404,14 @@ async function byg(g, d, type) {
       await sikrKanal(g, d, k.n, opts, rapport);
     }
     gem();
+  }
+  // Den gamle #kunde-support er erstattet af #hjælp-hinanden
+  if (d.kanaler.kundesupport) {
+    const ks = await g.channels.fetch(d.kanaler.kundesupport).catch(() => null);
+    const msgs = ks && await ks.messages.fetch({ limit: 5 }).catch(() => null);
+    if (ks && (!msgs || ![...msgs.values()].some(m => !m.author.bot))) await ks.delete('Erstattet af #hjælp-hinanden').catch(() => {});
+    else if (ks) await ks.setName('kunde-support-gammel').catch(() => {});
+    delete d.kanaler.kundesupport; gem();
   }
   // Discords gamle standardkanaler (#generel, Generel og deres kategorier) fra da serveren blev lavet
   await g.channels.fetch();
@@ -1163,7 +1177,7 @@ function start(client, onAlle, HOVED_ID, typer) {
         if (!d) return svar(i, '❌ Serveren er ikke sat op endnu.');
         if (i.customId === 'nv_verify') {
           const rolle = d.roller.Spiller;
-          if (!rolle) return svar(i, '❌ Rollen Spiller findes ikke. Bed en admin køre /setup igen.');
+          if (!rolle) return svar(i, `❌ Rollen ${visNavn(d.type, 'Spiller')} findes ikke. Bed en admin køre /setup igen.`);
           if (i.member.roles.cache.has(rolle)) return svar(i, '✅ Du har allerede adgang!');
           await i.member.roles.add(rolle, 'Accepterede reglerne');
           return svar(i, `✅ Velkommen! Du har nu adgang til ${navnPaa(i.guild)}. Kig i <#${d.kanaler.chat}>.`);
@@ -1184,7 +1198,7 @@ function start(client, onAlle, HOVED_ID, typer) {
           if (m.roles.cache.has(d.roller.Kunde)) return svar(i, `✅ ${m} er allerede kunde.`);
           await m.roles.add(d.roller.Kunde, `Køb gennemført (markeret af ${i.user.tag})`);
           await i.reply({ embeds: [new EmbedBuilder().setColor(0x22c55e).setTitle('✅ Køb gennemført')
-            .setDescription(`Tak for dit køb, ${m}! 🐐\nDu har fået rollen **Kunde** og kan nu skrive i ${d.kanaler.anmeldelser ? `<#${d.kanaler.anmeldelser}>` : '#anmeldelser'} og få hjælp i ${d.kanaler.kundesupport ? `<#${d.kanaler.kundesupport}>` : '#kunde-support'}.`)] });
+            .setDescription(`Tak for dit køb, ${m}! 🐐\nDu har fået rollen **Kunde** og kan nu skrive en anmeldelse med **/anmeld** i ${d.kanaler.botkmd ? `<#${d.kanaler.botkmd}>` : '#bot-kommandoer'} og få hjælp af andre i ${d.kanaler.hjaelp ? `<#${d.kanaler.hjaelp}>` : '#hjælp-hinanden'}.`)] });
           await log(i.guild, '🛒 Ny kunde', [`${m} fik rollen **Kunde** (markeret af ${i.user}).`], 0x22c55e);
           return statsSnart(i.guild);
         }
