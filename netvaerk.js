@@ -416,7 +416,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 26;
+const SKABELON_V = 27;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -519,51 +519,83 @@ async function sendEllerRet(kanal, besked) {
 const REKLAME_LEVETID = 2 * 3600 * 1000; // opslag i #reklame slettes efter 2 timer
 
 function reklameGuide(d, navn) {
-  return new EmbedBuilder().setColor(0xf59e0b).setAuthor({ name: navn }).setTitle('📣 Sådan reklamerer du')
+  return new EmbedBuilder().setColor(0xf59e0b).setAuthor({ name: navn }).setTitle('📣 Reklame: vis din server frem!')
     .setDescription([
-      'Her må du reklamere for din Discord-server, Minecraft-server eller dit projekt. 🙌', '',
-      '**📋 Regler**',
-      '• Ét opslag hver **6. time** (Discord holder selv styr på det).',
-      '• Alle opslag bliver **slettet automatisk efter 2 timer**, så kanalen holdes frisk.',
-      '• Ingen NSFW, scam, leaks eller pings (@everyone/@here/roller bliver slettet).',
-      '• Kun **permanente** invite-links, der ikke udløber.',
-      '• Ingen reklame i DM eller i andre kanaler. Det giver timeout.', '',
-      '**✍️ Skabelon (kopiér og udfyld)**',
+      'Har du en Discord-server, Minecraft-server eller et projekt? Så post det her, og få nye medlemmer. 🚀', '',
+      '### 📋 Regler',
+      '> ⏱️ Ét opslag hver **6. time** pr. person',
+      '> 🧹 Opslag slettes automatisk efter **2 timer**, så alle får en fair chance',
+      '> 🔗 Opslaget **skal** have et Discord-invite, der ikke udløber',
+      '> 🚫 Ingen NSFW, scam, leaks, @everyone/@here eller rolle-pings',
+      '> 📩 Ingen reklame i DM eller i andre kanaler',
+      '',
+      '### ✨ Sådan laver du et opslag, der virker',
+      '**1.** Start med en **fængende første linje**. Det er den, folk ser først.',
+      '**2.** Fortæl **hvad** I er, og **hvem** det er for (sprog, version, gamemode).',
+      '**3.** Skriv 3-5 **konkrete grunde** til at joine. Tal og navne virker bedre end "sjov server".',
+      '**4.** Slut af med **IP/hjemmeside** og **Discord-link**.',
+      '**5.** Brug emojis og **fed skrift**, men hold det kort. Under 15 linjer er bedst.',
+      '',
+      '### ✍️ Skabelon (kopiér og udfyld)',
       '```',
-      '🌟 Navn: ',
-      '📝 Hvad er det: ',
-      '🎮 Hvad tilbyder I: ',
-      '🔗 Link: ',
+      '# 🌟 [Navn] | [kort slogan]',
+      '[1-2 linjer om hvad I er]',
+      '',
+      '**✨ Hvorfor joine?**',
+      '> ✅ [grund 1]',
+      '> ✅ [grund 2]',
+      '> ✅ [grund 3]',
+      '',
+      '🌐 **IP/side:** [ip eller hjemmeside]',
+      '💬 **Discord:** [invite-link]',
       '```',
-      'Se et eksempel herunder. 👇',
-      `Vil du have et fast samarbejde i stedet? Se <#${d.kanaler.partnere || ''}>.`,
+      '👇 Se et færdigt eksempel herunder.',
+      `🤝 Vil du have et fast samarbejde i stedet? Se <#${d.kanaler.partnere || ''}>.`,
     ].join('\n'));
 }
 
 function reklameEksempel(d) {
   // Shoppen må aldrig nævne HopDop, så den får et opdigtet eksempel
   const e = d.type === 'shop' ? [
-    '🌟 **Navn:** Bjergriget Survival',
-    '📝 **Hvad er det:** Dansk survival-server (1.21) med økonomi, jobs og byer, som spillerne selv bygger.',
-    '🎮 **Hvad tilbyder I:**',
-    '> 🏙️ Byg din egen by med venner',
-    '> 💰 Spillerdrevet økonomi og auktionshus',
-    '> 🎉 Ugentlige events med præmier',
+    '# 🏔️ Bjergriget Survival | Byg. Handl. Herske.',
+    'Dansk survival-server på 1.21, hvor spillerne selv bygger byerne og styrer økonomien.',
+    '',
+    '**✨ Hvorfor joine?**',
+    '> 🏙️ Byg din egen by med venner og inviter borgere',
+    '> 💰 Spillerdrevet økonomi med auktionshus og jobs',
+    '> 🎉 Ugentlige events med rigtige præmier',
     '> 🇩🇰 Dansk staff, der svarer hurtigt',
-    '🔗 **Link:** discord.gg/eksempel',
+    '',
+    '🌐 **IP:** play.eksempel.dk',
+    '💬 **Discord:** discord.gg/eksempel',
   ] : [
-    '🌟 **Navn:** HopDop HCF',
-    '📝 **Hvad er det:** Dansk 1.8.9 HCF/KitPvP-server med teams, KOTH og kits. Spil gerne med Lunar Client.',
-    '🎮 **Hvad tilbyder I:**',
-    '> ⚔️ Kits: Diamond, Bard, Archer, Rogue og Reaper',
-    '> 👑 Main KOTH og Mini KOTH, hvor teamet vinder penge',
-    '> 🛡️ Teams med levels, K/D og egen team-bank',
-    '> 🗳️ Vote-belønninger med /vote Hopdop',
-    '🌐 **IP:** hopdop.superawesome.dk',
-    '🔗 **Link:** discord.gg/53fAaeMGqP',
+    '# ⚔️ HOPDOP | Rigtig 1.8 PvP. Kun for de bedste.',
+    'Dansk **HCF Kits**-server på **1.8.9**. Lav dit team, find allierede, og tag KOTH.',
+    '',
+    '**✨ Hvorfor joine?**',
+    '> 🗡️ **5 kits:** Diamond, Bard, Archer, Rogue og Reaper',
+    '> 👑 **KOTH hvert 20. minut:** vind **$5.000 + KOTH-kisten** til dit team',
+    '> 🛡️ **Teams** med alliancer, team-bank og team-levels',
+    '> ⏱️ Timere på scoreboardet: combat-tag, pearl, archer tag og bard-energi',
+    '> 🔥 **Daily streak:** jo længere streak, jo bedre rewards',
+    '> 🏆 Leaderboards, duels, anticheat og aktivt staff',
+    '',
+    '🌐 **IP:** `hopdop.superawesome.dk`',
+    '🖥️ **Hjemmeside:** hopdop.pages.dev',
+    '💬 **Discord:** discord.gg/53fAaeMGqP',
   ];
   return new EmbedBuilder().setColor(0x22c55e).setTitle('👀 Eksempel på et godt opslag').setDescription(e.join('\n'))
-    .setFooter({ text: 'Kort, tydeligt og med et link, der virker. Sådan får du flest joins.' });
+    .setFooter({ text: 'Fængende start, konkrete grunde og links, der virker. Sådan får du flest joins.' });
+}
+
+// Tjekker nye reklame-opslag: skal have et Discord-invite. Ellers slettes det med en kort forklaring.
+async function tjekReklame(m, d) {
+  const harInvite = /(discord\.gg|discord(app)?\.com\/invite)\/[a-z0-9-]+/i.test(m.content || '') || m.embeds?.some(e => /discord\.gg|discord(app)?\.com\/invite/i.test(`${e.url} ${e.description}`));
+  if (harInvite) { await m.react('📣').catch(() => {}); return; }
+  if (erStaff(m.member, d)) return;
+  await m.delete().catch(() => {});
+  const svarB = await m.channel.send({ content: `${m.author} ❌ Dit opslag blev fjernet, fordi det mangler et **Discord-invite** (fx discord.gg/...). Se guiden øverst i kanalen, og husk linket, når du må poste igen.`, allowedMentions: { users: [m.author.id] } }).catch(() => null);
+  if (svarB) setTimeout(() => svarB.delete().catch(() => {}), 15000);
 }
 
 async function rydReklame(g, d) {
@@ -1060,6 +1092,11 @@ function start(client, onAlle, HOVED_ID, typer) {
     const d = info(m.guild); const k = d?.kanaler?.boosts && await m.guild.channels.fetch(d.kanaler.boosts).catch(() => null); if (!k) return;
     const niv = { 9: 1, 10: 2, 11: 3 }[m.type];
     await k.send({ content: `🔮 ${m.author} har lige boosted serveren! Tusind tak! 💜${niv ? ` Vi er nu på **niveau ${niv}**! 🎉` : ''}`, allowedMentions: { parse: [] } }).catch(() => {});
+  });
+  onAlle('messageCreate', async m => {
+    if (!m.guild || m.guild.id === HOVED_ID || m.author.bot || m.webhookId || m.system || !m.member) return;
+    const d = info(m.guild); if (!d?.kanaler?.reklame || m.channelId !== d.kanaler.reklame) return;
+    await tjekReklame(m, d).catch(e => spor(`reklame-tjek: ${e.message}`));
   });
   // #hjælp-hinanden: skriver man direkte i kanalen, laver botten en tråd ud fra beskeden
   onAlle('messageCreate', async m => {
