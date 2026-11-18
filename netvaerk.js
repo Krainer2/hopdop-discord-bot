@@ -904,7 +904,7 @@ function start(client, onAlle, HOVED_ID, typer) {
 
 // ---------- GEDERNE BUTIK BOT (separat bot) ----------
 // Logo og banner (sættes én gang pr. version: serverikon, bottens profilbillede og -banner)
-const SHOP_GRAFIK = { v: 4, servernavn: '🐐 | Gederne Shop', visningsnavn: 'Gederne Shop',
+const SHOP_GRAFIK = { v: 5, servernavn: '🐐 | Gederne Shop | 🐐', visningsnavn: 'Gederne Shop',
   logo: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g1.png',
   banner: 'https://raw.githubusercontent.com/Krainer2/hopdop-discord-bot/b818a5fc22e0fd2c33db05df5dd8ea4081d43c3c/g2.jpg' };
 async function saetShopGrafik(shop) {
