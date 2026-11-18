@@ -63,7 +63,7 @@ const KANALER = {
       { n: 'chat', navn: '💬┃chat', slow: 3, topic: 'Snak om alt muligt. Hold en god tone.' },
       { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Her bruger du bottens kommandoer, fx /forslag, /anmeld og /invite. De virker kun i denne kanal.' },
       { n: 'hjaelp', navn: '🤝┃hjælp-hinanden', slow: 600, traade: true,
-        topic: 'Spørg om hjælp og hjælp andre! Lav en tråd til dit spørgsmål (+ øverst eller "Opret tråd"). I tråde er der ingen cooldown, og du kan tagge folk og sende billeder.' },
+        topic: '🧵 SKRIV I EN TRÅD! Kanalen har 10 min cooldown, tråde har ingen. Tryk # øverst → Opret tråd. Skriver du her, laver botten en tråd til dig.' },
       { n: 'forslag', navn: '💡┃forslag', las: true, reager: true, topic: 'Stem på forslag med reaktioner. Lav et forslag: skriv /forslag i #bot-kommandoer.' },
       { n: 'medier', navn: '🖼️┃medier', slow: 10, kun: ['shop'], topic: 'Billeder og videoer af dine builds, servere og setups.' },
       { n: 'scripting', navn: '💻┃skript-snak', slow: 3, kun: ['shop'], topic: 'Snak om Skript, plugins og udvikling. Hjælp hinanden.' },
@@ -384,7 +384,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 23;
+const SKABELON_V = 24;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -584,6 +584,20 @@ async function postPaneler(g, d) {
       '**2.** Send jeres **invite-link**, en kort **beskrivelse** og hvor mange **medlemmer** I har.',
       '**3.** Staff kigger på det og vender tilbage i ticketten.',
       '**4.** Bliver I godkendt, kommer I på listen herunder. 🎉',
+    ].join('\n'))] });
+  const hj = d.kanaler.hjaelp && await g.channels.fetch(d.kanaler.hjaelp).catch(() => null);
+  if (hj) await sendEllerRet(hj, { embeds: [new EmbedBuilder().setColor(0x3b82f6).setAuthor({ name: navn }).setTitle('🤝 Sådan får du hjælp her')
+    .setDescription([
+      '**Skriv dit spørgsmål i en TRÅD, ikke direkte i kanalen.** 🧵',
+      'I selve kanalen er der **10 minutters cooldown**. I tråde er der **ingen cooldown**.', '',
+      '**📝 Sådan laver du en tråd**',
+      '**1.** Tryk på **#** (tråd-ikonet) øverst til højre i kanalen, eller **+** ved siden af skrivefeltet.',
+      '**2.** Vælg **Opret tråd**, og giv den et navn, fx *"Hjælp med mit script"*.',
+      '**3.** Skriv dit spørgsmål inde i tråden. 🎉', '',
+      '**💡 Godt at vide**',
+      '• Skriver du direkte i kanalen, laver botten automatisk en tråd til dig.',
+      '• I tråden må du **tagge** folk og sende **billeder**.',
+      '• Hjælp gerne andre i deres tråde. 💙',
     ].join('\n'))] });
   const rk = d.kanaler.reklame && await g.channels.fetch(d.kanaler.reklame).catch(() => null);
   if (rk) await sendEllerRet(rk, { embeds: [reklameGuide(d, navn), reklameEksempel(d)] });
@@ -1013,6 +1027,16 @@ function start(client, onAlle, HOVED_ID, typer) {
     const d = info(m.guild); const k = d?.kanaler?.boosts && await m.guild.channels.fetch(d.kanaler.boosts).catch(() => null); if (!k) return;
     const niv = { 9: 1, 10: 2, 11: 3 }[m.type];
     await k.send({ content: `🔮 ${m.author} har lige boosted serveren! Tusind tak! 💜${niv ? ` Vi er nu på **niveau ${niv}**! 🎉` : ''}`, allowedMentions: { parse: [] } }).catch(() => {});
+  });
+  // #hjælp-hinanden: skriver man direkte i kanalen, laver botten en tråd ud fra beskeden
+  onAlle('messageCreate', async m => {
+    try {
+      if (!m.guild || m.guild.id === HOVED_ID || m.author.bot || m.webhookId || m.system) return;
+      const d = info(m.guild); if (!d?.kanaler?.hjaelp || m.channelId !== d.kanaler.hjaelp || m.hasThread) return;
+      const navn = (m.content || '').replace(/<[@#&!:a-z0-9]+>/gi, '').replace(/\s+/g, ' ').trim().slice(0, 80) || `Hjælp til ${m.member?.displayName || m.author.username}`;
+      const t = await m.startThread({ name: navn, autoArchiveDuration: 1440 }).catch(e => { spor(`hjaelp-tråd: ${e.message}`); return null; });
+      if (t) await t.send({ content: `👋 ${m.author}, jeg har lavet en tråd til dit spørgsmål. Skriv videre herinde: her er **ingen cooldown**, og du kan tagge folk og sende billeder. 🧵` }).catch(() => {});
+    } catch (e) { spor(`hjaelp: ${e.message}`); }
   });
   onAlle('guildMemberRemove', m => { if (m.guild.id !== HOVED_ID && info(m.guild)) statsSnart(m.guild); });
   onAlle('guildMemberUpdate', async (gl, ny) => {
