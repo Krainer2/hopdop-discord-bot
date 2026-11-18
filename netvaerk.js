@@ -35,7 +35,7 @@ const ROLLER = {
   prison: [{ navn: 'Vagt', farve: 0x1d4ed8, hoist: true }],
   kitpvp: [{ navn: 'Event', farve: 0xa855f7, hoist: false }],
   uhc: [{ navn: 'Host', farve: 0xeab308, hoist: true }],
-  shop: [{ navn: 'Booster', farve: 0xf47fff, hoist: true }, { navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
+  shop: [{ navn: 'Booster', farve: 0xf47fff, hoist: true }, { navn: 'Skripter', farve: 0x06b6d4, hoist: true }, { navn: 'Trusted', farve: 0x10b981, hoist: true }, { navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
   andet: [],
 };
 // las = kun læse: kun staff poster/skriver (som på HopDop HCF). reager = medlemmer må reagere. skriv = roller, der må skrive alligevel.
@@ -67,6 +67,9 @@ const KANALER = {
       { n: 'scripting', navn: '💻┃skript-snak', slow: 3, kun: ['shop'], topic: 'Snak om Skript, plugins og udvikling. Hjælp hinanden.' },
       { n: 'minecraft', navn: '⛏️┃minecraft-snak', slow: 3, kun: ['shop'], topic: 'Alt om Minecraft og servere.' },
       { n: 'memes', navn: '😂┃memes', slow: 10, kun: ['shop'], topic: 'Memes og sjove ting. Hold det pænt.' },
+      { n: 'kreationer', navn: '🧪┃kreationer', las: true, reager: true, skriv: ['Trusted', 'Skripter'], kun: ['shop'],
+        forum: { tags: [['Skript', '📜'], ['Plugin', '🧩'], ['Build', '🏗️'], ['Setup', '⚙️'], ['Værktøj', '🛠️'], ['Idé', '💡'], ['Under udvikling', '🚧'], ['Færdig', '✅']], reaktion: '🔥' },
+        topic: 'Her deler Trusted og Skriptere deres egne kreationer: scripts, plugins, builds og setups. Alle kan se og reagere. Vil du dele her? Få rollen Trusted eller Skripter af staff.' },
     ] },
   ],
   prison: [{ id: 'prison', kat: '[ 🔒 | PRISON ]', kanaler: [
@@ -107,7 +110,8 @@ const KANALER = {
       { n: 'boosterlounge', navn: '💜┃booster-lounge', rolle: 'Booster', topic: 'Kun for boosters. Tak fordi du støtter os! 💜' },
       { n: 'boostervoice', navn: '💜┃Booster-snak', voice: true, rolle: 'Booster' },
     ] },
-    { id: 'support', kat: '[ 🎫 | SUPPORT ]', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true, topic: 'Tryk på en knap for at oprette en ticket.' }] },
+    { id: 'support', kat: '[ 🎫 | SUPPORT ]', kanaler: [{ n: 'ticket', navn: '🎫┃opret-ticket', las: true, topic: 'Tryk på en knap for at oprette en ticket.' },
+      { n: 'ticketarkiv', navn: '📁┃ticket-arkiv', las: true, topic: 'Her gemmes lukkede tickets som private tråde. Du kan kun se dine egne.' }] },
     { id: 'voice', kat: '[ 🔊 | SNAK ]', kanaler: [
       { n: 'voice1', navn: '💬┃Hyggesnak 1', voice: true },
       { n: 'voice2', navn: '💬┃Hyggesnak 2', voice: true },
@@ -241,7 +245,7 @@ function rettigheder(g, d, k, staffKat) {
     else if (k.las) ow.push({ id: spiller, allow: laesning, deny: laesNej });
     else ow.push({ id: spiller, allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.EmbedLinks, P.AddReactions], deny: [P.CreatePublicThreads, P.CreatePrivateThreads] });
   }
-  for (const r of k.skriv || []) if (d.roller[r]) ow.push({ id: d.roller[r], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.AttachFiles, P.AddReactions] });
+  for (const r of k.skriv || []) if (d.roller[r]) ow.push({ id: d.roller[r], allow: [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks, P.AddReactions] });
   for (const s of staff) ow.push({ id: s, allow: staffRet });
   return ow;
 }
@@ -374,7 +378,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 19;
+const SKABELON_V = 21;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -485,6 +489,42 @@ async function postPaneler(g, d) {
   if (fo) await sendEllerRet(fo, { embeds: [new EmbedBuilder().setColor(0x57f287).setAuthor({ name: navn }).setTitle('💡 Sådan laver du et forslag')
     .setDescription(`Gå ind i ${d.kanaler.botkmd ? `<#${d.kanaler.botkmd}>` : '#bot-kommandoer'} og skriv **/forslag**.\nUdfyld formularen, så kommer dit forslag herind.\n\nStem på andres forslag med ✅ og ❌. Staff svarer, og du får en besked, når dit forslag er godkendt eller afvist.`)] });
   await opdaterAnmPanel(g, d);
+  const ticketLink = d.kanaler.ticket ? `<#${d.kanaler.ticket}>` : '#opret-ticket';
+  const pa = d.kanaler.partnere && await g.channels.fetch(d.kanaler.partnere).catch(() => null);
+  if (pa) await sendEllerRet(pa, { embeds: [new EmbedBuilder().setColor(0x5865f2).setAuthor({ name: navn }).setTitle('🤝 Bliv samarbejdspartner')
+    .setDescription([
+      'Har du en Discord-server, en Minecraft-server eller et projekt, der passer til os? Så lad os hjælpe hinanden!', '',
+      '**🎁 Det får du**',
+      '• Din server bliver vist her i kanalen med beskrivelse og invite-link.',
+      '• Vi deler gerne jeres nyheder og events med vores community.', '',
+      '**✅ Det kigger vi efter**',
+      '• En aktiv server med en god tone.',
+      '• Ingen NSFW, scam eller leaks.',
+      '• At I også viser os frem hos jer.', '',
+      '**📝 Sådan ansøger du**',
+      `**1.** Gå til ${ticketLink}, og tryk på **🤝 Samarbejde**.`,
+      '**2.** Send jeres **invite-link**, en kort **beskrivelse** og hvor mange **medlemmer** I har.',
+      '**3.** Staff kigger på det og vender tilbage i ticketten.',
+      '**4.** Bliver I godkendt, kommer I på listen herunder. 🎉',
+    ].join('\n'))] });
+  const rk = d.kanaler.reklame && await g.channels.fetch(d.kanaler.reklame).catch(() => null);
+  if (rk) await sendEllerRet(rk, { embeds: [new EmbedBuilder().setColor(0xf59e0b).setAuthor({ name: navn }).setTitle('📣 Sådan reklamerer du')
+    .setDescription([
+      'Her må du reklamere for din Discord-server, Minecraft-server eller dit projekt. 🙌', '',
+      '**📋 Regler**',
+      '• Ét opslag hver **6. time** (Discord holder selv styr på det).',
+      '• Ingen NSFW, scam, leaks eller pings (@everyone/@here/roller bliver slettet).',
+      '• Kun **permanente** invite-links, der ikke udløber.',
+      '• Ingen reklame i DM eller i andre kanaler. Det giver timeout.', '',
+      '**✍️ Skabelon (kopiér og udfyld)**',
+      '```',
+      '🌟 Navn: ',
+      '📝 Hvad er det: ',
+      '🎮 Hvad tilbyder I: ',
+      '🔗 Link: ',
+      '```',
+      `Vil du have et fast samarbejde i stedet? Se <#${d.kanaler.partnere || ''}>.`,
+    ].join('\n'))] });
   const guide = d.kanaler.guide && await g.channels.fetch(d.kanaler.guide).catch(() => null);
   if (guide) await sendEllerRet(guide, { embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('✅ Sådan kommer du ind')
     .setDescription([
@@ -687,13 +727,48 @@ async function opdaterAnmPanel(g, d) {
 }
 
 // ---------- TICKETS ----------
-async function aabnTicket(i, slags) {
+// Skabeloner, der popper op, når man laver en ticket (max 5 felter). [id, spørgsmål, lang?, påkrævet?, eksempel]
+const MC = ['mc', 'Dit Minecraft-navn', false, true, 'Fx krainer2'];
+const TICKET_FORMULAR = {
+  'shop:koeb': [['produkt', 'Hvilket produkt vil du købe?', false, true, 'Navnet fra #produkter'],
+    ['server', 'Hvilken server/version skal det bruges på?', false, false, 'Fx Prison på 1.8.9'],
+    ['betaling', 'Hvordan vil du helst betale?', false, false, 'Fx MobilePay eller PayPal'],
+    ['ekstra', 'Spørgsmål eller ønsker?', true, false, 'Skriv hvis du har spørgsmål til produktet']],
+  'shop:bestil': [['hvad', 'Hvad skal scriptet/pluginet kunne?', true, true, 'Beskriv så præcist som muligt, gerne punkt for punkt'],
+    ['server', 'Servertype og version', false, true, 'Fx KitPvP på 1.8.9 med Skript'],
+    ['budget', 'Hvad er dit budget?', false, false, 'Fx 100-200 kr.'],
+    ['deadline', 'Hvornår skal det være færdigt?', false, false, 'Fx inden for 2 uger'],
+    ['eksempel', 'Eksempler eller andet vi skal vide?', true, false, 'Links, billeder eller servere med noget lignende']],
+  'shop:support': [['produkt', 'Hvilket produkt drejer det sig om?', false, true, 'Navnet fra #produkter'],
+    ['problem', 'Hvad er problemet?', true, true, 'Hvad sker der, og hvad burde der ske?'],
+    ['server', 'Server-version og andre plugins', false, false, 'Fx Paper 1.8.9, Skript 2.6, LuckPerms'],
+    ['fejl', 'Fejlbeskeder fra konsollen', true, false, 'Kopiér fejlen ind her, hvis der er en']],
+  partner: [['navn', 'Hvad hedder jeres server/projekt?', false, true, ''],
+    ['link', 'Permanent invite-link', false, true, 'https://discord.gg/...'],
+    ['medlemmer', 'Hvor mange medlemmer har I?', false, true, 'Fx 250'],
+    ['om', 'Fortæl kort om jer', true, true, 'Hvad laver I, og hvordan kan vi hjælpe hinanden?']],
+  support: [MC, ['problem', 'Hvad drejer det sig om?', true, true, 'Beskriv din sag så godt du kan']],
+  anmeld: [MC, ['hvem', 'Hvem anmelder du?', false, true, 'Minecraft-navn eller Discord-navn'],
+    ['hvad', 'Hvad skete der?', true, true, 'Hvornår, hvor og hvad'], ['bevis', 'Beviser (links til billeder/video)', true, false, 'Fx YouTube- eller Imgur-links']],
+  ansog: [MC, ['hvorfor', 'Hvorfor vil du gerne være med?', true, true, ''], ['erfaring', 'Hvilken erfaring har du?', true, true, 'Fx staff på andre servere'],
+    ['tid', 'Hvor meget tid kan du være aktiv?', false, true, 'Fx 2 timer om dagen']],
+};
+TICKET_FORMULAR.vagt = TICKET_FORMULAR.host = TICKET_FORMULAR.ansog;
+const formularFor = (type, slags) => TICKET_FORMULAR[`${type}:${slags}`] || TICKET_FORMULAR[slags];
+function ticketModal(type, slags, titel) {
+  const felter = formularFor(type, slags); if (!felter) return null;
+  return new ModalBuilder().setCustomId(`nv_tkm_${slags}`).setTitle(titel.slice(0, 45)).addComponents(...felter.slice(0, 5).map(([id, label, lang, krav, eks]) =>
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label.slice(0, 45)).setStyle(lang ? TextInputStyle.Paragraph : TextInputStyle.Short)
+      .setRequired(krav).setMaxLength(lang ? 1000 : 200).setPlaceholder((eks || '').slice(0, 100) || ' '))));
+}
+
+async function aabnTicket(i, slags, svarFelter = null) {
   const g = i.guild, d = info(g);
   const valg = TICKETS[d.type].find(x => x[0] === slags);
   if (!valg) return svar(i, '❌ Ukendt ticket-type.');
   const aaben = g.channels.cache.find(c => c.topic === `ticket:${i.user.id}`);
   if (aaben) return svar(i, `Du har allerede en åben ticket: ${aaben}`);
-  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!i.deferred && !i.replied) await i.deferReply({ flags: MessageFlags.Ephemeral });
   const kat = d.kanaler.kat_support && await g.channels.fetch(d.kanaler.kat_support).catch(() => null);
   const staff = STAFF_ROLLER.map(r => d.roller[r]).filter(Boolean);
   const kanal = await g.channels.create({
@@ -707,10 +782,13 @@ async function aabnTicket(i, slags) {
   });
   await kanal.send({ content: `${i.user}`, embeds: [new EmbedBuilder().setColor(farve(g)).setAuthor({ name: navnPaa(g) })
     .setTitle(`${valg[2]} ${valg[1]}`)
-    .setDescription(d.type === 'shop' ? 'Tak for din ticket! Skriv hvilket script du er interesseret i, eller hvad du har brug for, så svarer vi hurtigst muligt.' : 'Tak for din ticket! Skriv så meget som muligt om din sag, så svarer staff hurtigst muligt.\nSkriv også dit **Minecraft-navn**.')],
+    .setDescription(svarFelter?.length ? 'Tak for din ticket! 🙌 Dine svar fra skabelonen står herunder. Staff svarer så hurtigt som muligt. Skriv gerne mere her, eller send billeder.' : (d.type === 'shop' ? 'Tak for din ticket! Skriv hvilket script du er interesseret i, eller hvad du har brug for, så svarer vi hurtigst muligt.' : 'Tak for din ticket! Skriv så meget som muligt om din sag, så svarer staff hurtigst muligt.\nSkriv også dit **Minecraft-navn**.'))],
     components: [new ActionRowBuilder().addComponents(
       ...(d.type === 'shop' && ['koeb', 'bestil'].includes(slags) ? [new ButtonBuilder().setCustomId('nv_kunde').setLabel('Køb gennemført (staff)').setEmoji('✅').setStyle(ButtonStyle.Success)] : []),
       new ButtonBuilder().setCustomId('nv_luk').setLabel('Luk ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger))] });
+  if (svarFelter?.length) await kanal.send({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('📋 Udfyldt skabelon')
+    .setAuthor({ name: i.member.displayName, iconURL: i.user.displayAvatarURL() })
+    .addFields(svarFelter.filter(([, v]) => v).map(([n, v]) => ({ name: n.slice(0, 256), value: v.slice(0, 1024) })))] });
   return i.editReply(`✅ Din ticket er oprettet: ${kanal}`);
 }
 
@@ -719,14 +797,51 @@ async function lukTicket(i) {
   const ejer = String(kanal.topic || '').replace('ticket:', '');
   if (!String(kanal.topic || '').startsWith('ticket:')) return svar(i, '❌ Det her er ikke en ticket.');
   if (ejer !== i.user.id && !erStaff(i.member, d)) return svar(i, '❌ Kun den der lavede ticketen eller staff kan lukke den.');
-  await i.reply({ content: '🔒 Ticketen lukkes om 5 sekunder ...' });
-  const beskeder = await kanal.messages.fetch({ limit: 100 }).catch(() => null);
-  const tekst = beskeder ? [...beskeder.values()].reverse().map(m => `[${new Date(m.createdTimestamp).toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen' })}] ${m.author.tag}: ${m.content || (m.embeds.length ? '(embed)' : '')}`).join('\n') : '';
+  await i.reply({ content: '🔒 Ticketen gemmes og lukkes om et øjeblik ...' });
+  const arkiv = await gemSamtale(g, d, kanal, ejer, i.user).catch(e => { spor(`ticket-arkiv: ${e.message}`); return null; });
+  const knap = arkiv ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Se samtalen').setEmoji('📜').setStyle(ButtonStyle.Link).setURL(arkiv.url))] : [];
   const logK = d.kanaler.ticketlog && await g.channels.fetch(d.kanaler.ticketlog).catch(() => null);
-  if (logK) await logK.send({ embeds: [new EmbedBuilder().setColor(0x64748b).setTitle('🔒 Ticket lukket')
-    .setDescription(`**Ticket:** ${kanal.name}\n**Lavet af:** <@${ejer}>\n**Lukket af:** ${i.user}`).setTimestamp()],
-    files: tekst ? [new AttachmentBuilder(Buffer.from(tekst, 'utf8'), { name: `${kanal.name}.txt` })] : [] }).catch(() => {});
+  if (logK) await logK.send({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('📁 Ticket lukket')
+    .setDescription([`**Ticket:** ${kanal.name}`, `**Lavet af:** <@${ejer}>`, `**Lukket af:** ${i.user}`, arkiv ? `**Beskeder:** ${arkiv.antal}` : '⚠️ Samtalen kunne ikke gemmes.'].join('\n')).setTimestamp()],
+    components: knap, allowedMentions: { parse: [] } }).catch(() => {});
+  const u = await i.client.users.fetch(ejer).catch(() => null);
+  if (u && arkiv) await u.send({ embeds: [new EmbedBuilder().setColor(farve(g)).setAuthor({ name: navnPaa(g) }).setTitle('📁 Din ticket er lukket')
+    .setDescription(`Tak for din henvendelse! Din ticket **${kanal.name}** er lukket af ${i.user.username}.\nDu kan altid læse samtalen igen her. Kun dig og staff kan åbne den.`)], components: knap }).catch(() => {});
   setTimeout(() => kanal.delete('Ticket lukket').catch(() => {}), 5000);
+}
+
+// Gemmer hele ticket-samtalen i en PRIVAT tråd i #ticket-arkiv. Kun de medvirkende (og staff) kan åbne den.
+async function gemSamtale(g, d, kanal, ejerId, lukketAf) {
+  const arkivK = d.kanaler.ticketarkiv && await g.channels.fetch(d.kanaler.ticketarkiv).catch(() => null);
+  if (!arkivK) return null;
+  let alle = [], foer;
+  for (let n = 0; n < 10; n++) { // op til 1000 beskeder
+    const bunke = await kanal.messages.fetch({ limit: 100, before: foer }).catch(() => null);
+    if (!bunke?.size) break;
+    alle.push(...bunke.values()); foer = bunke.last().id;
+    if (bunke.size < 100) break;
+  }
+  alle = alle.reverse();
+  const tid = t => new Date(t).toLocaleString('da-DK', { timeZone: 'Europe/Copenhagen', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const traad = await arkivK.threads.create({ name: `📁 ${kanal.name}`.slice(0, 100), type: ChannelType.PrivateThread, invitable: false, autoArchiveDuration: 10080, reason: 'Ticket-samtale' });
+  await traad.send({ embeds: [new EmbedBuilder().setColor(farve(g)).setTitle(`📁 ${kanal.name}`)
+    .setDescription([`**Lavet af:** <@${ejerId}>`, `**Lukket af:** ${lukketAf}`, `**Åbnet:** <t:${Math.floor(kanal.createdTimestamp / 1000)}:f>`, `**Lukket:** <t:${Math.floor(Date.now() / 1000)}:f>`, `**Beskeder:** ${alle.length}`].join('\n'))], allowedMentions: { parse: [] } });
+  // Beskederne samles i pæne blokke (max 4000 tegn pr. blok)
+  const linjer = alle.map(m => {
+    const navn = m.member?.displayName || m.author.username;
+    const dele = [m.cleanContent, ...m.embeds.map(e => [e.title && `**${e.title}**`, e.description, ...(e.fields || []).map(f => `**${f.name}:** ${f.value}`)].filter(Boolean).join('\n')), ...[...m.attachments.values()].map(x => `📎 [${x.name}](${x.url})`)].filter(Boolean).join('\n');
+    return `**${navn}**${m.author.bot ? ' 🤖' : ''} · ${tid(m.createdTimestamp)}\n${dele || '*(tom besked)*'}`;
+  });
+  let blok = '', blokke = [];
+  for (const l of linjer) { const x = l.slice(0, 3900); if ((blok + '\n\n' + x).length > 3900) { blokke.push(blok); blok = x; } else blok = blok ? `${blok}\n\n${x}` : x; }
+  if (blok) blokke.push(blok);
+  for (let j = 0; j < blokke.length; j += 5) await traad.send({ embeds: blokke.slice(j, j + 5).map(t => new EmbedBuilder().setColor(0x2b2d31).setDescription(t)), allowedMentions: { parse: [] } }).catch(() => {});
+  // Tilføj de medvirkende (ejeren + alle der skrev)
+  const medvirkende = new Set([ejerId, ...alle.filter(m => !m.author.bot).map(m => m.author.id)]);
+  for (const id of medvirkende) await traad.members.add(id).catch(() => {});
+  await traad.setLocked(true).catch(() => {});
+  await traad.setArchived(true).catch(() => {});
+  return { url: traad.url, antal: alle.length };
 }
 
 // ---------- KOMMANDOER ----------
@@ -873,6 +988,12 @@ function start(client, onAlle, HOVED_ID, typer) {
         const navne = f?.threads ? [...(await f.threads.fetchActive().catch(() => null))?.threads.filter(t => t.parentId === f.id).values() || [], ...(await f.threads.fetchArchived({ limit: 50 }).catch(() => null))?.threads.values() || []].map(t => t.name) : [];
         const s = i.options.getFocused().toLowerCase();
         return i.respond([...new Set(navne)].filter(n => n.toLowerCase().includes(s)).slice(0, 25).map(n => ({ name: n.slice(0, 100), value: n.slice(0, 80) }))).catch(() => {});
+      }
+      if (i.isModalSubmit() && i.customId.startsWith('nv_tkm_')) {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
+        const slags = i.customId.slice(7);
+        const felter = (formularFor(d.type, slags) || []).map(([id, label]) => { let v = ''; try { v = i.fields.getTextInputValue(id).trim(); } catch { v = ''; } return [label, v]; });
+        return aabnTicket(i, slags, felter);
       }
       if (i.isModalSubmit() && i.customId === 'nv_forslag') {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1047,7 +1168,13 @@ function start(client, onAlle, HOVED_ID, typer) {
           await i.member.roles.add(rolle, 'Accepterede reglerne');
           return svar(i, `✅ Velkommen! Du har nu adgang til ${navnPaa(i.guild)}. Kig i <#${d.kanaler.chat}>.`);
         }
-        if (i.customId.startsWith('nv_tk_')) return aabnTicket(i, i.customId.slice(6));
+        if (i.customId.startsWith('nv_tk_')) {
+          const slags = i.customId.slice(6), valg = TICKETS[d.type]?.find(x => x[0] === slags);
+          const aaben = i.guild.channels.cache.find(c => c.topic === `ticket:${i.user.id}`);
+          if (aaben) return svar(i, `Du har allerede en åben ticket: ${aaben}`);
+          const modal = valg && ticketModal(d.type, slags, `${valg[2]} ${valg[1]}`);
+          return modal ? i.showModal(modal) : aabnTicket(i, slags);
+        }
         if (i.customId === 'nv_luk') return lukTicket(i);
         if (i.customId === 'nv_kunde') {
           if (!erStaff(i.member, d)) return svar(i, '❌ Kun staff kan markere et køb som gennemført.');
