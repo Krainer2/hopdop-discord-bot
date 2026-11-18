@@ -104,7 +104,9 @@ const KANALER = {
   slut: [
     { id: 'partner', kat: '[ 🤝 | PARTNERE ]', kanaler: [
       { n: 'partnere', navn: '🤝┃samarbejdspartnere', las: true, reager: true, topic: 'Vores samarbejdspartnere. Vil du være partner? Opret en ticket og vælg Samarbejde.' },
-      { n: 'reklame', navn: '📣┃reklame', slow: 21600, topic: 'Reklamér for din Discord-server eller dit projekt. Ét opslag hver 6. time. Opslag slettes automatisk efter 2 timer. Ingen NSFW, scam eller pings.' },
+      { n: 'reklame', navn: '📣┃reklame', slow: 21600, traade: true,
+        forum: { tags: [['Minecraft', '⛏️'], ['Discord', '💬'], ['Gaming', '🎮'], ['Community', '🤝'], ['Projekt', '🛠️'], ['Andet', '📦']], reaktion: '📣' },
+        topic: 'Reklamér for din server eller dit projekt! Ét opslag pr. person: titel = navnet, vælg et tag, vedhæft et banner og husk et Discord-invite. Læs det fastgjorte opslag først.' },
     ] },
     { id: 'boost', kat: '[ 💜 | BOOSTERS ]', kun: ['shop'], kanaler: [
       { n: 'boosts', navn: '🔮┃boosts', las: true, reager: true, topic: 'Se hvad serveren låser op ved næste boost. Tak til alle boosters! 💜' },
@@ -416,7 +418,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 28;
+const SKABELON_V = 29;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -516,30 +518,27 @@ async function sendEllerRet(kanal, besked) {
   return ny;
 }
 
-const REKLAME_LEVETID = 2 * 3600 * 1000; // opslag i #reklame slettes efter 2 timer
-
 function reklameGuide(d, navn) {
   return new EmbedBuilder().setColor(0xf59e0b).setAuthor({ name: navn }).setTitle('📣 Reklame: vis din server frem!')
     .setDescription([
-      'Har du en Discord-server, Minecraft-server eller et projekt? Så post det her, og få nye medlemmer. 🚀', '',
+      'Har du en Discord-server, Minecraft-server eller et projekt? Tryk på **Nyt opslag**, og få nye medlemmer. 🚀', '',
       '### 📋 Regler',
-      '> ⏱️ Ét opslag hver **6. time** pr. person',
-      '> 🧹 Opslag slettes automatisk efter **2 timer**, så alle får en fair chance',
+      '> 📌 **Ét opslag pr. person.** Har du allerede et, så ret i det i stedet for at lave et nyt',
+      '> 🏷️ Vælg et **tag**, og brug navnet på din server som **titel**',
       '> 🔗 Opslaget **skal** have et Discord-invite, der ikke udløber',
       '> 🚫 Ingen NSFW, scam, leaks, @everyone/@here eller rolle-pings',
       '> 📩 Ingen reklame i DM eller i andre kanaler',
       '',
       '### ✨ Sådan laver du et opslag, der virker',
-      '**1.** Start med en **fængende første linje**. Det er den, folk ser først.',
+      '**1.** Giv opslaget en **fængende titel** og en stærk første linje. Det er dem, folk ser i galleriet.',
       '**2.** Fortæl **hvad** I er, og **hvem** det er for (sprog, version, gamemode).',
       '**3.** Skriv 3-5 **konkrete grunde** til at joine. Tal og navne virker bedre end "sjov server".',
       '**4.** Slut af med **IP/hjemmeside** og **Discord-link**.',
       '**5.** Brug emojis og **fed skrift**, men hold det kort. Under 15 linjer er bedst.',
-      '**6.** 🖼️ **Vedhæft et billede eller banner!** Opslag med billede bliver set og klikket langt mere.',
+      '**6.** 🖼️ **Vedhæft et billede eller banner!** Det bliver forsidebilledet på dit kort i galleriet.',
       '',
       '### ✍️ Skabelon (kopiér og udfyld)',
       '```',
-      '# 🌟 [Navn] | [kort slogan]',
       '[1-2 linjer om hvad I er]',
       '',
       '**✨ Hvorfor joine?**',
@@ -559,7 +558,7 @@ function reklameGuide(d, navn) {
 function reklameEksempel(d) {
   // Shoppen må aldrig nævne HopDop, så den får et opdigtet eksempel
   const e = d.type === 'shop' ? [
-    '# 🏔️ Bjergriget Survival | Byg. Handl. Herske.',
+    '**Titel:** 🏔️ Bjergriget Survival | Byg. Handl. Herske.', '',
     'Dansk survival-server på 1.21, hvor spillerne selv bygger byerne og styrer økonomien.',
     '',
     '**✨ Hvorfor joine?**',
@@ -572,7 +571,7 @@ function reklameEksempel(d) {
     '💬 **Discord:** discord.gg/eksempel',
     '🖼️ *+ vedhæftet banner af serveren*',
   ] : [
-    '# ⚔️ HOPDOP | Rigtig 1.8 PvP. Kun for de bedste.',
+    '**Titel:** ⚔️ HOPDOP | Rigtig 1.8 PvP. Kun for de bedste.', '',
     'Dansk **HCF Kits**-server på **1.8.9**. Lav dit team, find allierede, og tag KOTH.',
     '',
     '**✨ Hvorfor joine?**',
@@ -602,18 +601,46 @@ async function tjekReklame(m, d) {
   if (svarB) setTimeout(() => svarB.delete().catch(() => {}), 15000);
 }
 
-async function rydReklame(g, d) {
-  const k = d?.kanaler?.reklame && await g.channels.fetch(d.kanaler.reklame).catch(() => null);
-  if (!k?.messages) return;
-  const msgs = await k.messages.fetch({ limit: 100 }).catch(() => null);
-  if (!msgs) return;
-  const nu = Date.now();
-  const gamle = [...msgs.values()].filter(m => !m.pinned && m.author.id !== g.client.user.id && nu - m.createdTimestamp > REKLAME_LEVETID);
-  if (!gamle.length) return;
-  const nyere = gamle.filter(m => nu - m.createdTimestamp < 13.5 * 86400000);
-  if (nyere.length > 1) await k.bulkDelete(nyere.map(m => m.id), true).catch(e => spor(`reklame: ${e.message}`));
-  for (const m of gamle.filter(m => !(nyere.length > 1 && nyere.includes(m)))) await m.delete().catch(() => {});
-  spor(`${g.name}: slettede ${gamle.length} reklame-opslag (over 2 timer gamle)`);
+// Fastgjort guide-opslag i reklame-forummet (eller en almindelig besked, hvis det ikke er et forum)
+async function reklamePanel(g, d, rk, navn) {
+  const besked = { embeds: [reklameGuide(d, navn), reklameEksempel(d)] };
+  if (rk.type !== ChannelType.GuildForum) return sendEllerRet(rk, besked);
+  d.paneler = d.paneler || {};
+  let t = d.paneler.reklame_traad && await g.channels.fetch(d.paneler.reklame_traad).catch(() => null);
+  if (t?.parentId !== rk.id) t = null;
+  if (t) {
+    if (t.archived) await t.setArchived(false).catch(() => {});
+    const start = await t.fetchStarterMessage().catch(() => null);
+    if (start) await start.edit(besked).catch(() => {});
+  } else {
+    t = await rk.threads.create({ name: '📌 Sådan laver du et godt opslag', message: besked, appliedTags: (rk.availableTags || []).filter(x => x.name === 'Andet').map(x => x.id), reason: 'Reklame-guide' }).catch(e => { spor(`reklame-guide: ${e.message}`); return null; });
+    if (!t) return;
+    d.paneler.reklame_traad = t.id; gem();
+  }
+  if (!t.flags?.has?.(ChannelFlags.Pinned)) await t.pin('Reklame-guide').catch(e => spor(`reklame-pin: ${e.message}`));
+  if (!t.locked) await t.setLocked(true).catch(() => {});
+}
+
+// Nyt opslag i reklame-forummet: skal have et Discord-invite, og man må kun have ét opslag
+async function tjekReklame(t, d) {
+  if (t.id === d.paneler?.reklame_traad) return;
+  const g = t.guild, m = await g.members.fetch(t.ownerId).catch(() => null);
+  if (!m || m.user.bot || erStaff(m, d)) return;
+  await new Promise(r => setTimeout(r, 1500));
+  const start = await t.fetchStarterMessage().catch(() => null);
+  const tekst = `${t.name} ${start?.content || ''} ${(start?.embeds || []).map(e => `${e.url} ${e.description}`).join(' ')}`;
+  const harInvite = /(discord\.gg|discord(app)?\.com\/invite)\/[a-z0-9-]+/i.test(tekst);
+  const forum = await g.channels.fetch(t.parentId).catch(() => null);
+  const aktive = forum ? await forum.threads.fetchActive().catch(() => null) : null;
+  const gammel = aktive && [...aktive.threads.values()].find(x => x.parentId === t.parentId && x.ownerId === t.ownerId && x.id !== t.id);
+  let grund = null;
+  if (gammel) grund = `du har allerede et opslag: ${gammel.url}\nRet i det i stedet (tryk på ••• → Rediger), eller slet det gamle først.`;
+  else if (!harInvite) grund = 'det mangler et **Discord-invite** (fx discord.gg/...). Læs det fastgjorte opslag øverst i forummet.';
+  if (!grund) { if (start) await start.react('📣').catch(() => {}); return; }
+  await t.delete('Reklame-regler').catch(() => {});
+  spor(`${g.name}: fjernede reklame fra ${m.user.tag} (${gammel ? 'har allerede et' : 'mangler invite'})`);
+  await m.send({ embeds: [new EmbedBuilder().setColor(0xef4444).setAuthor({ name: navnPaa(g) }).setTitle('📣 Dit reklame-opslag blev fjernet')
+    .setDescription(`Dit opslag **${t.name}** blev fjernet, fordi ${grund}`)] }).catch(() => {});
 }
 
 async function postPaneler(g, d) {
@@ -667,7 +694,7 @@ async function postPaneler(g, d) {
       '• Hjælp gerne andre i deres tråde. 💙',
     ].join('\n'))] });
   const rk = d.kanaler.reklame && await g.channels.fetch(d.kanaler.reklame).catch(() => null);
-  if (rk) await sendEllerRet(rk, { embeds: [reklameGuide(d, navn), reklameEksempel(d)] });
+  if (rk) await reklamePanel(g, d, rk, navn).catch(e => spor(`reklame-panel: ${e.message}`));
   const guide = d.kanaler.guide && await g.channels.fetch(d.kanaler.guide).catch(() => null);
   if (guide) await sendEllerRet(guide, { embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('✅ Sådan kommer du ind')
     .setDescription([
@@ -1039,8 +1066,6 @@ function start(client, onAlle, HOVED_ID, typer) {
     await findInvites(client);
     const stats = () => { for (const g of andre()) opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); };
     setTimeout(stats, 60000).unref?.(); setInterval(stats, 10 * 60000).unref?.();
-    const ryd = () => { for (const g of andre()) rydReklame(g, info(g)).catch(e => spor(`reklame: ${e.message}`)); };
-    setTimeout(ryd, 45000).unref?.(); setInterval(ryd, 10 * 60000).unref?.();
     setTimeout(async () => { for (const g of andre()) { const d = info(g); if (!d?.sat) continue;
       await synkBoostere(g, d).catch(e => spor(`boost: ${e.message}`)); await boostOpnaaet(g, d).catch(() => {}); await opdaterBoosts(g, d).catch(e => spor(`boosts: ${e.message}`));
       await opretEmojis(g, d).catch(e => spor(`emojis: ${e.message}`)); } }, 30000).unref?.();
@@ -1097,10 +1122,10 @@ function start(client, onAlle, HOVED_ID, typer) {
     const niv = { 9: 1, 10: 2, 11: 3 }[m.type];
     await k.send({ content: `🔮 ${m.author} har lige boosted serveren! Tusind tak! 💜${niv ? ` Vi er nu på **niveau ${niv}**! 🎉` : ''}`, allowedMentions: { parse: [] } }).catch(() => {});
   });
-  onAlle('messageCreate', async m => {
-    if (!m.guild || m.guild.id === HOVED_ID || m.author.bot || m.webhookId || m.system || !m.member) return;
-    const d = info(m.guild); if (!d?.kanaler?.reklame || m.channelId !== d.kanaler.reklame) return;
-    await tjekReklame(m, d).catch(e => spor(`reklame-tjek: ${e.message}`));
+  onAlle('threadCreate', async (t, ny) => {
+    if (!ny || !t.guild || t.guild.id === HOVED_ID) return;
+    const d = info(t.guild); if (!d?.kanaler?.reklame || t.parentId !== d.kanaler.reklame) return;
+    await tjekReklame(t, d).catch(e => spor(`reklame-tjek: ${e.message}`));
   });
   // #hjælp-hinanden: skriver man direkte i kanalen, laver botten en tråd ud fra beskeden
   onAlle('messageCreate', async m => {
