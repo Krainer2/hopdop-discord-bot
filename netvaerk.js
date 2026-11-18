@@ -862,13 +862,15 @@ function start(client, onAlle, HOVED_ID, typer) {
       if (i.isModalSubmit() && i.customId.startsWith('nv_anm:')) {
         const [, n, ...rest] = i.customId.split(':'); const produkt = rest.join(':'), st = Math.max(1, Math.min(5, parseInt(n, 10) || 5));
         const tekst = i.fields.getTextInputValue('tekst').trim();
+        let titel = ''; try { titel = i.fields.getTextInputValue('titel').trim(); } catch { titel = ''; }
         const k = d?.kanaler.anmeldelser && await i.guild.channels.fetch(d.kanaler.anmeldelser).catch(() => null);
         if (!k) return svar(i, '❌ Anmeldelses-kanalen findes ikke.');
         d.anmeldelser = d.anmeldelser || {};
         const noegle = `${i.user.id}:${produkt.toLowerCase()}`;
         const farver = { 5: 0x22c55e, 4: 0x84cc16, 3: 0xfacc15, 2: 0xf97316, 1: 0xef4444 };
         const emb = new EmbedBuilder().setColor(farver[st]).setAuthor({ name: `${i.member.displayName} · ✔ Verificeret kunde`, iconURL: i.user.displayAvatarURL() })
-          .setTitle(`${stjerner(st)}  ${st}/5`).setDescription(`>>> ${tekst.slice(0, 1500)}`)
+          .setTitle(titel ? `“${titel}”`.slice(0, 256) : `${stjerner(st)}  ${st}/5`)
+          .setDescription(`${titel ? `**${stjerner(st)}  ${st}/5**\n\n` : ''}>>> ${tekst.slice(0, 1500)}`)
           .addFields({ name: '📦 Produkt', value: produkt.slice(0, 100), inline: true }, { name: '🗓️ Dato', value: datoTekst(), inline: true })
           .setThumbnail(i.user.displayAvatarURL({ size: 128 }));
         const gl = d.anmeldelser[noegle];
@@ -970,8 +972,10 @@ function start(client, onAlle, HOVED_ID, typer) {
           if (!i.member.roles.cache.has(d.roller.Kunde) && !erStaff(i.member, d)) return svar(i, '⭐ Kun kunder kan skrive anmeldelser. Når du har købt noget, får du rollen **Kunde**.');
           const produkt = i.options.getString('produkt').replace(/[\r\n:]+/g, ' ').trim().slice(0, 70), st = i.options.getInteger('stjerner');
           return i.showModal(new ModalBuilder().setCustomId(`nv_anm:${st}:${produkt}`).setTitle(`${'⭐'.repeat(st)} ${produkt}`.slice(0, 45)).addComponents(
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tekst').setLabel('Hvad synes du om produktet?').setStyle(TextInputStyle.Paragraph)
-              .setRequired(true).setMinLength(20).setMaxLength(1500).setPlaceholder('Fortæl hvad der var godt, hvad der kunne være bedre, og om du vil anbefale det.'))));
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('titel').setLabel('Overskrift (kort)').setStyle(TextInputStyle.Short)
+              .setRequired(false).setMaxLength(80).setPlaceholder('Fx "Bedste prison-script jeg har købt!"')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tekst').setLabel('Beskrivelse: hvad synes du om produktet?').setStyle(TextInputStyle.Paragraph)
+              .setRequired(true).setMinLength(20).setMaxLength(1500).setPlaceholder('Hvad var godt? Hvad kunne være bedre? Hvordan var hjælpen? Vil du anbefale det?'))));
         }
         if (i.commandName === 'invite') {
           return i.reply({ embeds: [new EmbedBuilder().setColor(farve(i.guild)).setTitle(`📨 Invitér dine venner til ${navnPaa(i.guild)}`)
