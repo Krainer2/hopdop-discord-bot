@@ -837,6 +837,7 @@ function start(client, onAlle, HOVED_ID, typer) {
 
   onAlle('interactionCreate', async i => {
     if (!i.guild || i.guild.id === HOVED_ID) return;
+    if (i.isModalSubmit()) spor(`modal ${i.customId} fra ${i.user.tag} på ${i.guild.name}`);
     try {
       const d = info(i.guild);
       // Forslag på produkter: navne fra #produkter-forummet
@@ -847,6 +848,7 @@ function start(client, onAlle, HOVED_ID, typer) {
         return i.respond([...new Set(navne)].filter(n => n.toLowerCase().includes(s)).slice(0, 25).map(n => ({ name: n.slice(0, 100), value: n.slice(0, 80) }))).catch(() => {});
       }
       if (i.isModalSubmit() && i.customId === 'nv_forslag') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
         const tekst = i.fields.getTextInputValue('tekst').trim(), emne = i.fields.getTextInputValue('emne').trim();
         const k = d?.kanaler.forslag && await i.guild.channels.fetch(d.kanaler.forslag).catch(() => null);
         if (!k) return svar(i, '❌ Forslagskanalen findes ikke.');
@@ -860,6 +862,7 @@ function start(client, onAlle, HOVED_ID, typer) {
         return svar(i, `✅ Dit forslag er sendt til ${k}. (sID: \`${sid}\`)`);
       }
       if (i.isModalSubmit() && i.customId.startsWith('nv_anm:')) {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
         const [, n, ...rest] = i.customId.split(':'); const produkt = rest.join(':'), st = Math.max(1, Math.min(5, parseInt(n, 10) || 5));
         const tekst = i.fields.getTextInputValue('tekst').trim();
         let titel = ''; try { titel = i.fields.getTextInputValue('titel').trim(); } catch { titel = ''; }
@@ -1018,7 +1021,7 @@ function start(client, onAlle, HOVED_ID, typer) {
         }
       }
     } catch (e) {
-      console.error(`Netværk (${i.guild?.name}):`, e);
+      console.error(`Netværk (${i.guild?.name}):`, e); spor(`FEJL i ${i.commandName || i.customId}: ${e.stack?.split('\n').slice(0, 3).join(' | ')}`);
       svar(i, `❌ Noget gik galt: ${e.message}`);
     }
   });
