@@ -6,7 +6,7 @@
 // Data for hver server gemmes i servere.json (lokal fil, uploades ikke til GitHub).
 const fs = require('fs');
 const { ChannelType, PermissionFlagsBits: P, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  SlashCommandBuilder, MessageFlags, AttachmentBuilder, PermissionsBitField, ChannelFlags } = require('discord.js');
+  SlashCommandBuilder, MessageFlags, AttachmentBuilder, PermissionsBitField, ChannelFlags, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const FIL = 'servere.json';
 const hent = () => { try { return JSON.parse(fs.readFileSync(FIL, 'utf8')); } catch { return {}; } };
@@ -62,7 +62,7 @@ const KANALER = {
     { id: 'community', kat: '[ 💬 | COMMUNITY ]', kanaler: [
       { n: 'chat', navn: '💬┃chat', slow: 3, topic: 'Snak om alt muligt. Hold en god tone.' },
       { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Brug bottens kommandoer her, fx /ip.' },
-      { n: 'forslag', navn: '💡┃forslag', slow: 30, topic: 'Har du en idé? Skriv den her. Stem med reaktioner.' },
+      { n: 'forslag', navn: '💡┃forslag', las: true, reager: true, topic: 'Stem på forslag med reaktioner. Lav et forslag: skriv /forslag i #bot-kommandoer.' },
       { n: 'medier', navn: '🖼️┃medier', slow: 10, kun: ['shop'], topic: 'Billeder og videoer af dine builds, servere og setups.' },
       { n: 'scripting', navn: '💻┃skript-snak', slow: 3, kun: ['shop'], topic: 'Snak om Skript, plugins og udvikling. Hjælp hinanden.' },
       { n: 'minecraft', navn: '⛏️┃minecraft-snak', slow: 3, kun: ['shop'], topic: 'Alt om Minecraft og servere.' },
@@ -93,7 +93,7 @@ const KANALER = {
       topic: 'Se vores scripts i aktion. Videoer og billeder af hvad vi har lavet.' },
     { n: 'priser', navn: '💰┃priser', las: true, reager: true, alle: true, topic: 'Prisoversigt.' },
     { n: 'opdateringer', navn: '🆕┃opdateringer', las: true, reager: true, topic: 'Nye versioner og rettelser af vores produkter.' },
-    { n: 'anmeldelser', navn: '⭐┃anmeldelser', las: true, reager: true, skriv: ['Kunde'], slow: 60, topic: 'Anmeldelser fra kunder. Kun kunder kan skrive her.' },
+    { n: 'anmeldelser', navn: '⭐┃anmeldelser', las: true, reager: true, alle: true, topic: 'Anmeldelser fra vores kunder. Har du købt noget? Skriv /anmeld.' },
     { n: 'kundesupport', navn: '🛠️┃kunde-support', rolle: 'Kunde', topic: 'Hjælp til produkter, du har købt.' },
   ] }],
   andet: [],
@@ -364,7 +364,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 15;
+const SKABELON_V = 16;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -447,8 +447,13 @@ async function setup(i, type, navn) {
 }
 
 async function sendEllerRet(kanal, besked) {
-  const gammel = (await kanal.messages.fetch({ limit: 20 }).catch(() => null))?.find(m => m.author.id === kanal.client.user.id);
-  return gammel ? gammel.edit(besked).catch(() => kanal.send(besked)) : kanal.send(besked);
+  // Panelet er bottens ÆLDSTE besked i kanalen (forslag, anmeldelser og boost-beskeder kommer efter)
+  const d = info(kanal.guild); if (d) d.paneler = d.paneler || {};
+  let gammel = d?.paneler[kanal.id] && await kanal.messages.fetch(d.paneler[kanal.id]).catch(() => null);
+  if (!gammel) gammel = [...((await kanal.messages.fetch({ limit: 50 }).catch(() => null))?.values() || [])].filter(m => m.author.id === kanal.client.user.id && m.embeds.length).pop();
+  const ny = gammel ? await gammel.edit(besked).catch(() => kanal.send(besked)) : await kanal.send(besked);
+  if (d && ny?.id && d.paneler[kanal.id] !== ny.id) { d.paneler[kanal.id] = ny.id; gem(); }
+  return ny;
 }
 
 async function postPaneler(g, d) {
@@ -466,6 +471,10 @@ async function postPaneler(g, d) {
     components: [new ActionRowBuilder().addComponents(...TICKETS[d.type].map(([id, label, emoji]) =>
       new ButtonBuilder().setCustomId(`nv_tk_${id}`).setLabel(label).setEmoji(emoji).setStyle(id === 'anmeld' ? ButtonStyle.Danger : ButtonStyle.Primary)))],
   });
+  const fo = d.kanaler.forslag && await g.channels.fetch(d.kanaler.forslag).catch(() => null);
+  if (fo) await sendEllerRet(fo, { embeds: [new EmbedBuilder().setColor(0x57f287).setAuthor({ name: navn }).setTitle('💡 Sådan laver du et forslag')
+    .setDescription(`Gå ind i ${d.kanaler.botkmd ? `<#${d.kanaler.botkmd}>` : '#bot-kommandoer'} og skriv **/forslag**.\nUdfyld formularen, så kommer dit forslag herind.\n\nStem på andres forslag med ✅ og ❌. Staff svarer, og du får en besked, når dit forslag er godkendt eller afvist.`)] });
+  await opdaterAnmPanel(g, d);
   const guide = d.kanaler.guide && await g.channels.fetch(d.kanaler.guide).catch(() => null);
   if (guide) await sendEllerRet(guide, { embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('✅ Sådan kommer du ind')
     .setDescription([
@@ -545,6 +554,8 @@ async function opdaterStats(g, d) {
       produkter += (aktive?.threads.filter(t => t.parentId === forum.id).size || 0) + (arkiv?.threads.size || 0);
     }
     linjer.push(['stat_produkter', `📦┃Produkter: ${produkter}`]);
+    const { snit, antal } = anmSnit(d);
+    linjer.push(['stat_anm', antal ? `⭐┃Bedømmelse: ${komma(snit)}/5 (${antal})` : '⭐┃Bedømmelse: ingen endnu']);
   } else if (d.type === 'prison') linjer.push(['stat_vagter', `👮┃Vagter: ${antalMed('Vagt')}`]);
   for (const [n, navn] of linjer) {
     let c = d.kanaler[n] && await g.channels.fetch(d.kanaler[n]).catch(() => null);
@@ -637,6 +648,30 @@ async function opretEmojis(g, d) {
   await log(g, '😀 Emojis tilføjet', [`${ud.ok} nye emojis er lagt op.`, ...(ud.fejl.length ? ['', `⚠️ ${ud.fejl.length} kunne ikke laves (fx for store billeder). Det prøves igen ved næste genstart.`] : [])], ud.fejl.length ? 0xf59e0b : 0x22c55e);
 }
 
+// ---------- FORSLAG (som på HopDop HCF) ----------
+const forslagCd = new Map();
+const lavSid = () => Math.random().toString(36).slice(2, 7).toUpperCase();
+const datoTekst = () => new Date().toLocaleDateString('da-DK', { timeZone: 'Europe/Copenhagen', day: 'numeric', month: 'long', year: 'numeric' });
+
+// ---------- ANMELDELSER ----------
+const stjerner = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+function anmSnit(d) {
+  const a = Object.values(d.anmeldelser || {});
+  return a.length ? { snit: a.reduce((x, y) => x + y.stjerner, 0) / a.length, antal: a.length } : { snit: 0, antal: 0 };
+}
+const komma = x => x.toFixed(1).replace('.', ',');
+async function opdaterAnmPanel(g, d) {
+  const k = d.kanaler.anmeldelser && await g.channels.fetch(d.kanaler.anmeldelser).catch(() => null); if (!k) return;
+  const { snit, antal } = anmSnit(d);
+  await sendEllerRet(k, { embeds: [new EmbedBuilder().setColor(0xfacc15).setAuthor({ name: navnPaa(g) }).setTitle('⭐ Anmeldelser')
+    .setDescription([
+      antal ? `## ${stjerner(Math.round(snit))}  ${komma(snit)} / 5` : '## Ingen anmeldelser endnu',
+      antal ? `Baseret på **${antal}** anmeldelse${antal === 1 ? '' : 'r'} fra verificerede kunder.` : 'Bliv den første til at anmelde et produkt!', '',
+      '**Har du købt noget?** Skriv **/anmeld**, vælg produkt og antal stjerner, og skriv hvad du synes.',
+      `Kun kunder (rollen ${d.roller.Kunde ? `<@&${d.roller.Kunde}>` : 'Kunde'}) kan anmelde. Du kan altid rette din anmeldelse ved at anmelde samme produkt igen.`,
+    ].join('\n'))] });
+}
+
 // ---------- TICKETS ----------
 async function aabnTicket(i, slags) {
   const g = i.guild, d = info(g);
@@ -697,6 +732,17 @@ const lavKommandoer = typer => [
     .setDefaultMemberPermissions(P.Administrator)
     .addAttachmentOption(o => o.setName('logo').setDescription('Logo (firkantet billede): serverikon og bottens profilbillede'))
     .addAttachmentOption(o => o.setName('banner').setDescription('Banner (bredt billede): bottens profilbanner og serverbanner')),
+  new SlashCommandBuilder().setName('forslag').setDescription('Send et forslag til serveren'),
+  new SlashCommandBuilder().setName('godkend').setDescription('Godkend et forslag (staff)').setDefaultMemberPermissions(P.ManageMessages)
+    .addStringOption(o => o.setName('sid').setDescription('Forslagets sID (står i bunden af forslaget)').setRequired(true).setMaxLength(10))
+    .addStringOption(o => o.setName('svar').setDescription('Begrundelse (valgfri)').setMaxLength(500)),
+  new SlashCommandBuilder().setName('afvis').setDescription('Afvis et forslag (staff)').setDefaultMemberPermissions(P.ManageMessages)
+    .addStringOption(o => o.setName('sid').setDescription('Forslagets sID (står i bunden af forslaget)').setRequired(true).setMaxLength(10))
+    .addStringOption(o => o.setName('svar').setDescription('Begrundelse (valgfri)').setMaxLength(500)),
+  ...(typer.includes('shop') ? [new SlashCommandBuilder().setName('anmeld').setDescription('Skriv en anmeldelse af et produkt, du har købt')
+    .addStringOption(o => o.setName('produkt').setDescription('Hvilket produkt?').setRequired(true).setMaxLength(80).setAutocomplete(true))
+    .addIntegerOption(o => o.setName('stjerner').setDescription('Hvor mange stjerner?').setRequired(true)
+      .addChoices({ name: '⭐⭐⭐⭐⭐ Fantastisk', value: 5 }, { name: '⭐⭐⭐⭐ Rigtig godt', value: 4 }, { name: '⭐⭐⭐ Godt', value: 3 }, { name: '⭐⭐ Okay', value: 2 }, { name: '⭐ Dårligt', value: 1 }))] : []),
   new SlashCommandBuilder().setName('invite').setDescription('Få invite-linket til serveren, så du kan invitere dine venner'),
   new SlashCommandBuilder().setName('ip').setDescription('Vis serverens IP-adresse'),
   new SlashCommandBuilder().setName('say').setDescription('Lad botten skrive en besked (kun staff)')
@@ -793,6 +839,46 @@ function start(client, onAlle, HOVED_ID, typer) {
     if (!i.guild || i.guild.id === HOVED_ID) return;
     try {
       const d = info(i.guild);
+      // Forslag på produkter: navne fra #produkter-forummet
+      if (i.isAutocomplete() && i.commandName === 'anmeld') {
+        const f = d?.kanaler.produkter && await i.guild.channels.fetch(d.kanaler.produkter).catch(() => null);
+        const navne = f?.threads ? [...(await f.threads.fetchActive().catch(() => null))?.threads.filter(t => t.parentId === f.id).values() || [], ...(await f.threads.fetchArchived({ limit: 50 }).catch(() => null))?.threads.values() || []].map(t => t.name) : [];
+        const s = i.options.getFocused().toLowerCase();
+        return i.respond([...new Set(navne)].filter(n => n.toLowerCase().includes(s)).slice(0, 25).map(n => ({ name: n.slice(0, 100), value: n.slice(0, 80) }))).catch(() => {});
+      }
+      if (i.isModalSubmit() && i.customId === 'nv_forslag') {
+        const tekst = i.fields.getTextInputValue('tekst').trim(), emne = i.fields.getTextInputValue('emne').trim();
+        const k = d?.kanaler.forslag && await i.guild.channels.fetch(d.kanaler.forslag).catch(() => null);
+        if (!k) return svar(i, '❌ Forslagskanalen findes ikke.');
+        const sid = lavSid();
+        const msg = await k.send({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(`💡 ${emne || 'Nyt forslag'}`)
+          .setAuthor({ name: i.member.displayName, iconURL: i.user.displayAvatarURL() }).setDescription(tekst.slice(0, 2000))
+          .setFooter({ text: `sID: ${sid} • ${datoTekst()}` })] });
+        await msg.react('✅').catch(() => {}); await msg.react('❌').catch(() => {});
+        d.forslag = d.forslag || {}; d.forslag[sid] = { msg: msg.id, user: i.user.id, tekst: tekst.slice(0, 300) }; gem();
+        forslagCd.set(i.user.id, Date.now());
+        return svar(i, `✅ Dit forslag er sendt til ${k}. (sID: \`${sid}\`)`);
+      }
+      if (i.isModalSubmit() && i.customId.startsWith('nv_anm:')) {
+        const [, n, ...rest] = i.customId.split(':'); const produkt = rest.join(':'), st = Math.max(1, Math.min(5, parseInt(n, 10) || 5));
+        const tekst = i.fields.getTextInputValue('tekst').trim();
+        const k = d?.kanaler.anmeldelser && await i.guild.channels.fetch(d.kanaler.anmeldelser).catch(() => null);
+        if (!k) return svar(i, '❌ Anmeldelses-kanalen findes ikke.');
+        d.anmeldelser = d.anmeldelser || {};
+        const noegle = `${i.user.id}:${produkt.toLowerCase()}`;
+        const farver = { 5: 0x22c55e, 4: 0x84cc16, 3: 0xfacc15, 2: 0xf97316, 1: 0xef4444 };
+        const emb = new EmbedBuilder().setColor(farver[st]).setAuthor({ name: `${i.member.displayName} · ✔ Verificeret kunde`, iconURL: i.user.displayAvatarURL() })
+          .setTitle(`${stjerner(st)}  ${st}/5`).setDescription(`>>> ${tekst.slice(0, 1500)}`)
+          .addFields({ name: '📦 Produkt', value: produkt.slice(0, 100), inline: true }, { name: '🗓️ Dato', value: datoTekst(), inline: true })
+          .setThumbnail(i.user.displayAvatarURL({ size: 128 }));
+        const gl = d.anmeldelser[noegle];
+        let msg = gl && await k.messages.fetch(gl.msg).catch(() => null);
+        if (msg) await msg.edit({ embeds: [emb.setFooter({ text: 'Rettet' })] }); else msg = await k.send({ embeds: [emb] });
+        d.anmeldelser[noegle] = { msg: msg.id, user: i.user.id, produkt, stjerner: st }; gem();
+        await opdaterAnmPanel(i.guild, d); statsSnart(i.guild);
+        await log(i.guild, '⭐ Ny anmeldelse', [`${i.user} gav **${produkt}** ${stjerner(st)} (${st}/5).`], farver[st]);
+        return svar(i, `✅ Tak for din anmeldelse! Den står nu i ${k}.`);
+      }
       if (i.isChatInputCommand()) {
         if (i.commandName === 'setup') {
           if (!i.member.permissions.has(P.Administrator)) return svar(i, '❌ Kun admins kan bruge /setup.');
@@ -854,6 +940,38 @@ function start(client, onAlle, HOVED_ID, typer) {
           }
           await m.roles.add(r).catch(() => {});
           return svar(i, `🎨 Din farve er sat til **#${hex.toLowerCase()}**.`);
+        }
+        if (i.commandName === 'forslag') {
+          if (!d) return svar(i, '❌ Serveren er ikke sat op endnu.');
+          if (d.kanaler.botkmd && i.channelId !== d.kanaler.botkmd && !erStaff(i.member, d)) return svar(i, `Brug /forslag i <#${d.kanaler.botkmd}> 🙂`);
+          const venter = 60000 - (Date.now() - (forslagCd.get(i.user.id) || 0));
+          if (venter > 0) return svar(i, `Vent ${Math.ceil(venter / 1000)} sekunder før dit næste forslag.`);
+          return i.showModal(new ModalBuilder().setCustomId('nv_forslag').setTitle('Nyt forslag').addComponents(
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emne').setLabel('Kort overskrift').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80).setPlaceholder('Fx "Flere Prison-scripts"')),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tekst').setLabel('Dit forslag').setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(10).setMaxLength(1000))));
+        }
+        if (i.commandName === 'godkend' || i.commandName === 'afvis') {
+          if (!d || !erStaff(i.member, d)) return svar(i, '❌ Kun staff kan svare på forslag.');
+          const ok = i.commandName === 'godkend', sid = i.options.getString('sid').trim().toUpperCase(), begr = i.options.getString('svar');
+          const f = d.forslag?.[sid]; if (!f) return svar(i, 'Fandt ikke et forslag med det sID.');
+          const k = await i.guild.channels.fetch(d.kanaler.forslag).catch(() => null);
+          const msg = k && await k.messages.fetch(f.msg).catch(() => null);
+          if (!msg) return svar(i, 'Forslagsbeskeden er slettet.');
+          await msg.edit({ embeds: [EmbedBuilder.from(msg.embeds[0]).setColor(ok ? 0x22c55e : 0xef4444)
+            .setTitle(`${ok ? '✅ Godkendt' : '❌ Afvist'}: ${msg.embeds[0].title.replace(/^💡 /, '').replace(/^(✅ Godkendt|❌ Afvist): /, '')}`.slice(0, 256))
+            .setFields({ name: `${ok ? 'Godkendt' : 'Afvist'} af ${i.member.displayName}`, value: begr || 'Ingen begrundelse.' })] });
+          f.status = ok ? 'godkendt' : 'afvist'; gem();
+          const u = await i.client.users.fetch(f.user).catch(() => null);
+          if (u) u.send(`Dit forslag på **${navnPaa(i.guild)}** er blevet **${ok ? 'godkendt ✅' : 'afvist ❌'}**: "${f.tekst.slice(0, 200)}"${begr ? `\nBegrundelse: ${begr}` : ''}`).catch(() => {});
+          return svar(i, `Forslag \`${sid}\` er ${ok ? 'godkendt' : 'afvist'}.`);
+        }
+        if (i.commandName === 'anmeld') {
+          if (!d?.roller.Kunde) return svar(i, '❌ Anmeldelser er ikke sat op her.');
+          if (!i.member.roles.cache.has(d.roller.Kunde) && !erStaff(i.member, d)) return svar(i, '⭐ Kun kunder kan skrive anmeldelser. Når du har købt noget, får du rollen **Kunde**.');
+          const produkt = i.options.getString('produkt').replace(/[\r\n:]+/g, ' ').trim().slice(0, 70), st = i.options.getInteger('stjerner');
+          return i.showModal(new ModalBuilder().setCustomId(`nv_anm:${st}:${produkt}`).setTitle(`${'⭐'.repeat(st)} ${produkt}`.slice(0, 45)).addComponents(
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('tekst').setLabel('Hvad synes du om produktet?').setStyle(TextInputStyle.Paragraph)
+              .setRequired(true).setMinLength(20).setMaxLength(1500).setPlaceholder('Fortæl hvad der var godt, hvad der kunne være bedre, og om du vil anbefale det.'))));
         }
         if (i.commandName === 'invite') {
           return i.reply({ embeds: [new EmbedBuilder().setColor(farve(i.guild)).setTitle(`📨 Invitér dine venner til ${navnPaa(i.guild)}`)
