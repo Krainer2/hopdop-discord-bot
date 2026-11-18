@@ -135,24 +135,50 @@ const TICKET_TEKST = {
   shop: 'Vil du købe et script, bestille et custom script, eller har du brug for hjælp?\nVælg en knap nedenfor. Så får du din egen kanal, hvor vi kan snakke sammen.',
   standard: 'Brug for hjælp, vil du søge, eller skal du anmelde en spiller?\nVælg en knap nedenfor. Så får du din egen kanal med staff.',
 };
-const REGLER = [
-  '**1.** Vis respekt. Ingen racisme, trusler eller hetz.',
-  '**2.** Ingen spam eller caps-spam. Reklame for andre servere må kun ligge i #reklame.',
-  '**3.** Ingen snyd, hacks, macros eller udnyttelse af fejl. Finder du en fejl, så lav en ticket.',
-  '**4.** Brug kanalerne til det, de er lavet til.',
-  '**5.** Ingen NSFW eller ubehageligt indhold.',
-  '**6.** Staff har altid det sidste ord. Er du uenig, så lav en ticket.',
+// Regler i sektioner: [overskrift, tekst]. Nummereres automatisk på tværs af sektionerne.
+const REGEL_SEKTIONER = [
+  { emoji: '🤝', titel: 'Opførsel', farve: 0x22c55e, regler: [
+    ['Vis respekt', 'Ingen racisme, trusler, hetz eller personangreb. Behandl andre, som du selv vil behandles.'],
+    ['Intet upassende indhold', 'Ingen NSFW, gore eller andet ubehageligt indhold. Det gælder også navne og profilbilleder.'],
+  ] },
+  { emoji: '💬', titel: 'Chat og kanaler', farve: 0x3b82f6, regler: [
+    ['Ingen spam', 'Ingen spam, caps-spam, flood eller unødvendige pings.'],
+    ['Brug de rigtige kanaler', 'Hver kanal har sit formål. Kommandoer hører til i #bot-kommandoer.'],
+    ['Reklame kun i #reklame', 'Reklame for andre servere må kun ligge i #reklame. Reklame i DM er ikke tilladt.'],
+  ] },
+  { emoji: '🛡️', titel: 'Fair play og staff', farve: 0xf59e0b, regler: [
+    ['Ingen snyd', 'Ingen hacks, macros eller udnyttelse af fejl. Finder du en fejl, så lav en ticket.'],
+    ['Staff har det sidste ord', 'Følg staffs anvisninger. Er du uenig, så lav en ticket i stedet for at diskutere i chatten.'],
+  ] },
 ];
-// Ekstra regler for shoppen: licens og brug af produkter
-const REGLER_SHOP = [
-  '**7.** Alle scripts, plugins og setups fra Gederne Shop tilhører **krainer2** og **Rajobo**. Når du køber, får du lov til at **bruge** produktet på din egen server. Du ejer det ikke.',
-  '**8.** Du må **ikke dele, videresælge, uploade, leake eller give** produkterne videre, heller ikke gratis, uden skriftlig tilladelse fra krainer2 eller Rajobo.',
-  '**9.** Du må **ikke** ændre et produkt og udgive det som dit eget, fjerne vores navn/mærkning eller prøve at knække krypteringen.',
-  '**10.** Alle produkter er **mærket og krypteret**. Vi kan se, når et produkt bliver delt eller brudt, og hvem det kommer fra.',
-  '**11.** Brud på reglerne om produkter giver **permanent ban** og **tab af alle licenser** uden refundering. Vi kan også gå videre med sagen.',
-  '**12.** Vi kan til enhver tid ændre reglerne og vilkårene for et produkt. Det gælder også, selvom du har **boostet** serveren eller **købt** hos os før. Tidligere køb eller boosts giver ikke særlige rettigheder.',
+const REGEL_SEKTIONER_SHOP = [
+  { emoji: '🛒', titel: 'Produkter og licens', farve: 0xa855f7, regler: [
+    ['Ejerskab', 'Alle scripts, plugins og setups fra Gederne Shop tilhører **krainer2** og **Rajobo**. Når du køber, får du lov til at **bruge** produktet på din egen server. Du ejer det ikke.'],
+    ['Ingen deling', 'Du må **ikke dele, videresælge, uploade, leake eller give** produkterne videre, heller ikke gratis, uden skriftlig tilladelse fra krainer2 eller Rajobo.'],
+    ['Ingen kopier', 'Du må **ikke** ændre et produkt og udgive det som dit eget, fjerne vores navn/mærkning eller prøve at knække krypteringen.'],
+  ] },
+  { emoji: '🔒', titel: 'Beskyttelse og straf', farve: 0xef4444, regler: [
+    ['Mærket og krypteret', 'Alle produkter er **mærket og krypteret**. Vi kan se, når et produkt bliver delt eller brudt, og hvem det kommer fra.'],
+    ['Straf', 'Brud på reglerne om produkter giver **permanent ban** og **tab af alle licenser** uden refundering. Vi kan også gå videre med sagen.'],
+  ] },
+  { emoji: '📌', titel: 'Ændringer', farve: 0x64748b, regler: [
+    ['Vi kan ændre reglerne', 'Vi kan til enhver tid ændre reglerne og vilkårene for et produkt. Det gælder også, selvom du har **boostet** serveren eller **købt** hos os før. Tidligere køb eller boosts giver ikke særlige rettigheder.'],
+  ] },
 ];
-const reglerFor = type => type === 'shop' ? [...REGLER, ...REGLER_SHOP] : REGLER;
+const sektionerFor = type => type === 'shop' ? [...REGEL_SEKTIONER, ...REGEL_SEKTIONER_SHOP] : REGEL_SEKTIONER;
+// Flad liste (bruges i Discords regel-skærm ved verificering)
+const reglerFor = type => sektionerFor(type).flatMap(x => x.regler).map(([t, b], i) => `**${i + 1}.** **${t}:** ${b}`);
+function reglerEmbeds(d, navn, f) {
+  let nr = 0;
+  const top = new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('📜 Serverens regler')
+    .setDescription('Læs reglerne herunder. Når du trykker **✅ Jeg accepterer reglerne**, siger du ja til at følge dem.\nKender du ikke reglerne, er det ikke en undskyldning. 🙂');
+  const dele = sektionerFor(d.type).map(sek => new EmbedBuilder().setColor(sek.farve).setTitle(`${sek.emoji} ${sek.titel}`)
+    .setDescription(sek.regler.map(([t, b]) => `**\`${++nr}\` ${t}**\n${b}`).join('\n\n')));
+  const bund = new EmbedBuilder().setColor(f)
+    .setDescription('⚖️ Brud på reglerne kan give **advarsel, mute, kick eller ban**, alt efter hvor groft det er.\n🎫 Har du spørgsmål til reglerne, så lav en ticket.')
+    .setFooter({ text: 'Reglerne kan blive opdateret. Tjek dem en gang imellem.' });
+  return [top, ...dele, bund];
+}
 
 // ---------- HJÆLPERE ----------
 const info = g => data[g.id] || null;
@@ -384,7 +410,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 24;
+const SKABELON_V = 25;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -552,8 +578,7 @@ async function postPaneler(g, d) {
   const f = farve(g), navn = navnPaa(g);
   const regler = await g.channels.fetch(d.kanaler.regler).catch(() => null);
   if (regler) await sendEllerRet(regler, {
-    embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('📜 Regler')
-      .setDescription([...(d.type === 'shop' ? ['### 📜 Generelle regler', ...REGLER, '', '### 🛒 Produkter og licens', ...REGLER_SHOP] : REGLER), '', 'Tryk på knappen nedenfor for at acceptere reglerne og få adgang til serveren.'].join('\n'))],
+    embeds: reglerEmbeds(d, navn, f),
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('nv_verify').setLabel('Jeg accepterer reglerne').setEmoji('✅').setStyle(ButtonStyle.Success))],
   });
   const ticket = await g.channels.fetch(d.kanaler.ticket).catch(() => null);
