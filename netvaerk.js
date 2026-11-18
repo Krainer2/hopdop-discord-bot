@@ -35,7 +35,7 @@ const ROLLER = {
   prison: [{ navn: 'Vagt', farve: 0x1d4ed8, hoist: true }],
   kitpvp: [{ navn: 'Event', farve: 0xa855f7, hoist: false }],
   uhc: [{ navn: 'Host', farve: 0xeab308, hoist: true }],
-  shop: [{ navn: 'Booster', farve: 0xf47fff, hoist: true }, { navn: 'Skripter', farve: 0x06b6d4, hoist: true }, { navn: 'Trusted', farve: 0x10b981, hoist: true }, { navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
+  shop: [{ navn: 'Skripter', farve: 0x06b6d4, hoist: true }, { navn: 'Trusted', farve: 0x10b981, hoist: true }, { navn: 'Booster', farve: 0xf47fff, hoist: true }, { navn: 'Kunde', farve: 0xf59e0b, hoist: true }],
   andet: [],
 };
 // las = kun læse: kun staff poster/skriver (som på HopDop HCF). reager = medlemmer må reagere. skriv = roller, der må skrive alligevel.
@@ -104,7 +104,7 @@ const KANALER = {
   slut: [
     { id: 'partner', kat: '[ 🤝 | PARTNERE ]', kanaler: [
       { n: 'partnere', navn: '🤝┃samarbejdspartnere', las: true, reager: true, topic: 'Vores samarbejdspartnere. Vil du være partner? Opret en ticket og vælg Samarbejde.' },
-      { n: 'reklame', navn: '📣┃reklame', slow: 21600, topic: 'Reklamér for din Discord-server eller dit projekt. Ét opslag hver 6. time. Ingen NSFW, scam eller pings.' },
+      { n: 'reklame', navn: '📣┃reklame', slow: 21600, topic: 'Reklamér for din Discord-server eller dit projekt. Ét opslag hver 6. time. Opslag slettes automatisk efter 2 timer. Ingen NSFW, scam eller pings.' },
     ] },
     { id: 'boost', kat: '[ 💜 | BOOSTERS ]', kun: ['shop'], kanaler: [
       { n: 'boosts', navn: '🔮┃boosts', las: true, reager: true, topic: 'Se hvad serveren låser op ved næste boost. Tak til alle boosters! 💜' },
@@ -384,7 +384,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 22;
+const SKABELON_V = 23;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -484,6 +484,70 @@ async function sendEllerRet(kanal, besked) {
   return ny;
 }
 
+const REKLAME_LEVETID = 2 * 3600 * 1000; // opslag i #reklame slettes efter 2 timer
+
+function reklameGuide(d, navn) {
+  return new EmbedBuilder().setColor(0xf59e0b).setAuthor({ name: navn }).setTitle('📣 Sådan reklamerer du')
+    .setDescription([
+      'Her må du reklamere for din Discord-server, Minecraft-server eller dit projekt. 🙌', '',
+      '**📋 Regler**',
+      '• Ét opslag hver **6. time** (Discord holder selv styr på det).',
+      '• Alle opslag bliver **slettet automatisk efter 2 timer**, så kanalen holdes frisk.',
+      '• Ingen NSFW, scam, leaks eller pings (@everyone/@here/roller bliver slettet).',
+      '• Kun **permanente** invite-links, der ikke udløber.',
+      '• Ingen reklame i DM eller i andre kanaler. Det giver timeout.', '',
+      '**✍️ Skabelon (kopiér og udfyld)**',
+      '```',
+      '🌟 Navn: ',
+      '📝 Hvad er det: ',
+      '🎮 Hvad tilbyder I: ',
+      '🔗 Link: ',
+      '```',
+      'Se et eksempel herunder. 👇',
+      `Vil du have et fast samarbejde i stedet? Se <#${d.kanaler.partnere || ''}>.`,
+    ].join('\n'));
+}
+
+function reklameEksempel(d) {
+  // Shoppen må aldrig nævne HopDop, så den får et opdigtet eksempel
+  const e = d.type === 'shop' ? [
+    '🌟 **Navn:** Bjergriget Survival',
+    '📝 **Hvad er det:** Dansk survival-server (1.21) med økonomi, jobs og byer, som spillerne selv bygger.',
+    '🎮 **Hvad tilbyder I:**',
+    '> 🏙️ Byg din egen by med venner',
+    '> 💰 Spillerdrevet økonomi og auktionshus',
+    '> 🎉 Ugentlige events med præmier',
+    '> 🇩🇰 Dansk staff, der svarer hurtigt',
+    '🔗 **Link:** discord.gg/eksempel',
+  ] : [
+    '🌟 **Navn:** HopDop HCF',
+    '📝 **Hvad er det:** Dansk 1.8.9 HCF/KitPvP-server med teams, KOTH og kits. Spil gerne med Lunar Client.',
+    '🎮 **Hvad tilbyder I:**',
+    '> ⚔️ Kits: Diamond, Bard, Archer, Rogue og Reaper',
+    '> 👑 Main KOTH og Mini KOTH, hvor teamet vinder penge',
+    '> 🛡️ Teams med levels, K/D og egen team-bank',
+    '> 🗳️ Vote-belønninger med /vote Hopdop',
+    '🌐 **IP:** hopdop.superawesome.dk',
+    '🔗 **Link:** discord.gg/53fAaeMGqP',
+  ];
+  return new EmbedBuilder().setColor(0x22c55e).setTitle('👀 Eksempel på et godt opslag').setDescription(e.join('\n'))
+    .setFooter({ text: 'Kort, tydeligt og med et link, der virker. Sådan får du flest joins.' });
+}
+
+async function rydReklame(g, d) {
+  const k = d?.kanaler?.reklame && await g.channels.fetch(d.kanaler.reklame).catch(() => null);
+  if (!k?.messages) return;
+  const msgs = await k.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!msgs) return;
+  const nu = Date.now();
+  const gamle = [...msgs.values()].filter(m => !m.pinned && m.author.id !== g.client.user.id && nu - m.createdTimestamp > REKLAME_LEVETID);
+  if (!gamle.length) return;
+  const nyere = gamle.filter(m => nu - m.createdTimestamp < 13.5 * 86400000);
+  if (nyere.length > 1) await k.bulkDelete(nyere.map(m => m.id), true).catch(e => spor(`reklame: ${e.message}`));
+  for (const m of gamle.filter(m => !(nyere.length > 1 && nyere.includes(m)))) await m.delete().catch(() => {});
+  spor(`${g.name}: slettede ${gamle.length} reklame-opslag (over 2 timer gamle)`);
+}
+
 async function postPaneler(g, d) {
   const f = farve(g), navn = navnPaa(g);
   const regler = await g.channels.fetch(d.kanaler.regler).catch(() => null);
@@ -522,23 +586,7 @@ async function postPaneler(g, d) {
       '**4.** Bliver I godkendt, kommer I på listen herunder. 🎉',
     ].join('\n'))] });
   const rk = d.kanaler.reklame && await g.channels.fetch(d.kanaler.reklame).catch(() => null);
-  if (rk) await sendEllerRet(rk, { embeds: [new EmbedBuilder().setColor(0xf59e0b).setAuthor({ name: navn }).setTitle('📣 Sådan reklamerer du')
-    .setDescription([
-      'Her må du reklamere for din Discord-server, Minecraft-server eller dit projekt. 🙌', '',
-      '**📋 Regler**',
-      '• Ét opslag hver **6. time** (Discord holder selv styr på det).',
-      '• Ingen NSFW, scam, leaks eller pings (@everyone/@here/roller bliver slettet).',
-      '• Kun **permanente** invite-links, der ikke udløber.',
-      '• Ingen reklame i DM eller i andre kanaler. Det giver timeout.', '',
-      '**✍️ Skabelon (kopiér og udfyld)**',
-      '```',
-      '🌟 Navn: ',
-      '📝 Hvad er det: ',
-      '🎮 Hvad tilbyder I: ',
-      '🔗 Link: ',
-      '```',
-      `Vil du have et fast samarbejde i stedet? Se <#${d.kanaler.partnere || ''}>.`,
-    ].join('\n'))] });
+  if (rk) await sendEllerRet(rk, { embeds: [reklameGuide(d, navn), reklameEksempel(d)] });
   const guide = d.kanaler.guide && await g.channels.fetch(d.kanaler.guide).catch(() => null);
   if (guide) await sendEllerRet(guide, { embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('✅ Sådan kommer du ind')
     .setDescription([
@@ -908,6 +956,8 @@ function start(client, onAlle, HOVED_ID, typer) {
     await findInvites(client);
     const stats = () => { for (const g of andre()) opdaterStats(g, info(g)).catch(e => spor(`stats: ${e.message}`)); };
     setTimeout(stats, 60000).unref?.(); setInterval(stats, 10 * 60000).unref?.();
+    const ryd = () => { for (const g of andre()) rydReklame(g, info(g)).catch(e => spor(`reklame: ${e.message}`)); };
+    setTimeout(ryd, 45000).unref?.(); setInterval(ryd, 10 * 60000).unref?.();
     setTimeout(async () => { for (const g of andre()) { const d = info(g); if (!d?.sat) continue;
       await synkBoostere(g, d).catch(e => spor(`boost: ${e.message}`)); await boostOpnaaet(g, d).catch(() => {}); await opdaterBoosts(g, d).catch(e => spor(`boosts: ${e.message}`));
       await opretEmojis(g, d).catch(e => spor(`emojis: ${e.message}`)); } }, 30000).unref?.();
@@ -1105,8 +1155,9 @@ function start(client, onAlle, HOVED_ID, typer) {
           else {
             r = await i.guild.roles.create({ name: `💜 ${m.displayName}`.slice(0, 100), color: parseInt(hex, 16), permissions: [], reason: 'Boosterfarve' }).catch(() => null);
             if (!r) return svar(i, 'Kunne ikke lave rollen.');
-            const br = d.roller.Booster && i.guild.roles.cache.get(d.roller.Booster);
-            if (br) await r.setPosition(br.position + 1).catch(() => {});
+            // Farven skal ligge over Skripter/Trusted/Booster, ellers vises den ikke for folk med flere roller
+            const top = ['Skripter', 'Trusted', 'Booster'].map(n => d.roller[n] && i.guild.roles.cache.get(d.roller[n])).filter(Boolean).sort((a, b) => b.position - a.position)[0];
+            if (top) await r.setPosition(top.position + 1).catch(() => {});
             d.boost.farver[m.id] = r.id; gem();
           }
           await m.roles.add(r).catch(() => {});
