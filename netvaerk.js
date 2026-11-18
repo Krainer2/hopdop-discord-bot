@@ -132,12 +132,22 @@ const TICKET_TEKST = {
 };
 const REGLER = [
   '**1.** Vis respekt. Ingen racisme, trusler eller hetz.',
-  '**2.** Ingen spam, caps-spam eller reklame for andre servere.',
-  '**3.** Ingen snyd, hacks, macros eller udnyttelse af fejl. Find du en fejl, så lav en ticket.',
+  '**2.** Ingen spam eller caps-spam. Reklame for andre servere må kun ligge i #reklame.',
+  '**3.** Ingen snyd, hacks, macros eller udnyttelse af fejl. Finder du en fejl, så lav en ticket.',
   '**4.** Brug kanalerne til det, de er lavet til.',
   '**5.** Ingen NSFW eller ubehageligt indhold.',
   '**6.** Staff har altid det sidste ord. Er du uenig, så lav en ticket.',
 ];
+// Ekstra regler for shoppen: licens og brug af produkter
+const REGLER_SHOP = [
+  '**7.** Alle scripts, plugins og setups fra Gederne Shop tilhører **krainer2** og **Rajobo**. Når du køber, får du lov til at **bruge** produktet på din egen server. Du ejer det ikke.',
+  '**8.** Du må **ikke dele, videresælge, uploade, leake eller give** produkterne videre, heller ikke gratis, uden skriftlig tilladelse fra krainer2 eller Rajobo.',
+  '**9.** Du må **ikke** ændre et produkt og udgive det som dit eget, fjerne vores navn/mærkning eller prøve at knække krypteringen.',
+  '**10.** Alle produkter er **mærket og krypteret**. Vi kan se, når et produkt bliver delt eller brudt, og hvem det kommer fra.',
+  '**11.** Brud på reglerne om produkter giver **permanent ban** og **tab af alle licenser** uden refundering. Vi kan også gå videre med sagen.',
+  '**12.** Vi kan til enhver tid ændre reglerne og vilkårene for et produkt. Det gælder også, selvom du har **boostet** serveren eller **købt** hos os før. Tidligere køb eller boosts giver ikke særlige rettigheder.',
+];
+const reglerFor = type => type === 'shop' ? [...REGLER, ...REGLER_SHOP] : REGLER;
 
 // ---------- HJÆLPERE ----------
 const info = g => data[g.id] || null;
@@ -359,12 +369,12 @@ async function saetOnboarding(g, d, rapport) {
 async function saetRegelskaerm(g, d, rapport) {
   await g.client.rest.patch(`/guilds/${g.id}/member-verification`, { body: { enabled: true,
     description: `Velkommen til ${navnPaa(g)}! Læs og accepter reglerne for at få adgang.`,
-    form_fields: [{ field_type: 'TERMS', label: 'Læs og accepter reglerne', required: true, values: REGLER.map(x => x.replace(/^\*\*\d+\.\*\* /, '')) }] } })
+    form_fields: [{ field_type: 'TERMS', label: 'Læs og accepter reglerne', required: true, values: reglerFor(d.type).map(x => x.replace(/^\*\*\d+\.\*\* /, '').replace(/\*\*/g, '').slice(0, 300)) }] } })
     .catch(e => rapport.push(`Regelskærm: ${e.message}`));
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 17;
+const SKABELON_V = 18;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -461,7 +471,7 @@ async function postPaneler(g, d) {
   const regler = await g.channels.fetch(d.kanaler.regler).catch(() => null);
   if (regler) await sendEllerRet(regler, {
     embeds: [new EmbedBuilder().setColor(f).setAuthor({ name: navn }).setTitle('📜 Regler')
-      .setDescription([...REGLER, '', 'Tryk på knappen nedenfor for at acceptere reglerne og få adgang til serveren.'].join('\n'))],
+      .setDescription([...(d.type === 'shop' ? ['### 📜 Generelle regler', ...REGLER, '', '### 🛒 Produkter og licens', ...REGLER_SHOP] : REGLER), '', 'Tryk på knappen nedenfor for at acceptere reglerne og få adgang til serveren.'].join('\n'))],
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('nv_verify').setLabel('Jeg accepterer reglerne').setEmoji('✅').setStyle(ButtonStyle.Success))],
   });
   const ticket = await g.channels.fetch(d.kanaler.ticket).catch(() => null);
