@@ -61,7 +61,7 @@ const KANALER = {
     ] },
     { id: 'community', kat: '[ 💬 | COMMUNITY ]', kanaler: [
       { n: 'chat', navn: '💬┃chat', slow: 3, topic: 'Snak om alt muligt. Hold en god tone.' },
-      { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Brug bottens kommandoer her, fx /ip.' },
+      { n: 'botkmd', navn: '🤖┃bot-kommandoer', slow: 5, topic: 'Her bruger du bottens kommandoer, fx /forslag, /anmeld og /invite. De virker kun i denne kanal.' },
       { n: 'forslag', navn: '💡┃forslag', las: true, reager: true, topic: 'Stem på forslag med reaktioner. Lav et forslag: skriv /forslag i #bot-kommandoer.' },
       { n: 'medier', navn: '🖼️┃medier', slow: 10, kun: ['shop'], topic: 'Billeder og videoer af dine builds, servere og setups.' },
       { n: 'scripting', navn: '💻┃skript-snak', slow: 3, kun: ['shop'], topic: 'Snak om Skript, plugins og udvikling. Hjælp hinanden.' },
@@ -374,7 +374,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 18;
+const SKABELON_V = 19;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -678,7 +678,7 @@ async function opdaterAnmPanel(g, d) {
       antal ? `## ${stjerner(Math.round(snit))}  ${komma(snit)} / 5` : '## Ingen anmeldelser endnu',
       antal ? `Baseret på **${antal}** anmeldelse${antal === 1 ? '' : 'r'} fra verificerede kunder.` : 'Bliv den første til at anmelde et produkt!', '',
       '**Sådan skriver du en anmeldelse:**',
-      '**1.** Skriv **/anmeld** i en kanal.',
+      `**1.** Gå ind i ${d.kanaler.botkmd ? `<#${d.kanaler.botkmd}>` : '#bot-kommandoer'} og skriv **/anmeld**.`,
       '**2.** Vælg **produkt** og **stjerner**.',
       '**3.** Tryk **Enter**. Skriv ikke noget efter stjernerne!',
       '**4.** Nu åbner en **formular**, hvor du skriver en overskrift og din anmeldelse. Tryk **Indsend**.',
@@ -912,6 +912,10 @@ function start(client, onAlle, HOVED_ID, typer) {
         return svar(i, `✅ Tak for din anmeldelse! Den står nu i ${k}.`);
       }
       if (i.isChatInputCommand()) {
+        // Offentlige kommandoer må kun bruges i #bot-kommandoer (staff må overalt), som på HopDop HCF
+        const OFFENTLIGE = ['ip', 'invite', 'forslag', 'anmeld', 'fjernanmeldelse', 'boosterfarve'];
+        if (d?.kanaler.botkmd && OFFENTLIGE.includes(i.commandName) && i.channelId !== d.kanaler.botkmd && !erStaff(i.member, d))
+          return svar(i, `Brug kommandoer i <#${d.kanaler.botkmd}> 🙂`);
         if (i.commandName === 'setup') {
           if (!i.member.permissions.has(P.Administrator)) return svar(i, '❌ Kun admins kan bruge /setup.');
           const mig = i.guild.members.me;
@@ -975,7 +979,6 @@ function start(client, onAlle, HOVED_ID, typer) {
         }
         if (i.commandName === 'forslag') {
           if (!d) return svar(i, '❌ Serveren er ikke sat op endnu.');
-          if (d.kanaler.botkmd && i.channelId !== d.kanaler.botkmd && !erStaff(i.member, d)) return svar(i, `Brug /forslag i <#${d.kanaler.botkmd}> 🙂`);
           const venter = 60000 - (Date.now() - (forslagCd.get(i.user.id) || 0));
           if (venter > 0) return svar(i, `Vent ${Math.ceil(venter / 1000)} sekunder før dit næste forslag.`);
           return i.showModal(new ModalBuilder().setCustomId('nv_forslag').setTitle('Nyt forslag').addComponents(
