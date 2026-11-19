@@ -418,7 +418,7 @@ async function saetRegelskaerm(g, d, rapport) {
 }
 
 // Bygger/retter hele serveren efter skabelonen. Bruges af /setup og automatisk, når skabelonen bliver opdateret.
-const SKABELON_V = 30;
+const SKABELON_V = 31;
 async function byg(g, d, type) {
   const rapport = [];
   spor(`byg start ${g.name} (${type})`);
@@ -688,6 +688,39 @@ async function postOpslag(client) {
   }
 }
 
+// ---------- Prisliste i #priser (shop) ----------
+const PRISER = [
+  ['🛍️ Færdige produkter', 0x22c55e, [['🧩', 'Små scripts', '29–79 kr.', 'Én funktion, fx en kommando eller et simpelt event.'],
+    ['📋', 'Systemer med menuer', '79–149 kr.', 'Flere menuer og indstillinger, fx Straf.'],
+    ['🏰', 'Store systemer og plugins', '149–299 kr.', 'Mange dele, der spiller sammen, fx Teams med KOTH.']]],
+  ['✍️ Custom-bestillinger', 0x3b82f6, [['✍️', 'Lille custom script', 'fra 99 kr.', 'En enkelt funktion lavet til din server.'],
+    ['⚙️', 'Custom system', 'fra 249 kr.', 'Et helt system med menuer, data og indstillinger.'],
+    ['🏗️', 'Stort projekt', 'fra 499 kr.', 'Større plugins eller en hel opsætning af din server.']]],
+  ['🎁 Ekstra og rabatter', 0xa855f7, [['➕', 'Tilføjelse til et købt produkt', 'fra 49 kr.', 'Ny funktion eller ændring i noget, du har købt.'],
+    ['🛠️', 'Hjælp til opsætning', '49 kr.', 'Vi hjælper med at få produktet til at køre på din server.'],
+    ['⚡', 'Hastebestilling', '+50 %', 'Custom-opgaven bliver lavet før alt andet.'],
+    ['🎁', 'Køb 2+ produkter', '−15 %', 'Rabat, når du køber flere produkter på én gang.']]],
+];
+function prisEmbeds(g, d, navn) {
+  let produkter = [];
+  try { produkter = JSON.parse(fs.readFileSync(require('path').join(__dirname, 'opslag.json'), 'utf8')).filter(o => o.type === d.type && o.kanal === 'produkter'); } catch {}
+  const linjer = produkter.map(o => {
+    const pris = (String(o.tekst).match(/Pris:\**\s*([^\n*]+)/) || [])[1]?.trim() || 'pris i ticket';
+    const id = d.opslag?.[o.id];
+    return `${id ? `<#${id}>` : `**${o.titel}**`} · **${pris}**`;
+  });
+  const ticket = d.kanaler.ticket ? `<#${d.kanaler.ticket}>` : '#opret-ticket';
+  return [
+    new EmbedBuilder().setColor(farve(g)).setAuthor({ name: navn }).setTitle('💰 Prisliste')
+      .setDescription(['Faste prisrammer, så du ved, hvad du går ind til.', 'Den præcise pris står ved hvert produkt, og custom-opgaver får et tilbud i ticketten.',
+        ...(linjer.length ? ['', '### 📦 Vores produkter lige nu', ...linjer] : [])].join('\n')),
+    ...PRISER.map(([titel, f, rk]) => new EmbedBuilder().setColor(f).setTitle(titel)
+      .setDescription(rk.map(([e, n, p, t]) => `${e} **${n}** · \`${p}\`\n${t}`).join('\n\n'))),
+    new EmbedBuilder().setColor(farve(g))
+      .setDescription(`🛒 **Sådan køber du:** opret en ticket i ${ticket}, og vælg **🛒 Køb et script** eller **✍️ Bestil custom script**.\n💳 Betaling aftales i ticketten. Priserne er i danske kroner og kan ændre sig.\n🌐 Se også priserne på ${SHOP_WEB}/#priser`),
+  ];
+}
+
 async function postPaneler(g, d) {
   const f = farve(g), navn = navnPaa(g);
   const regler = await g.channels.fetch(d.kanaler.regler).catch(() => null);
@@ -724,6 +757,8 @@ async function postPaneler(g, d) {
       '**3.** Staff kigger på det og vender tilbage i ticketten.',
       '**4.** Bliver I godkendt, kommer I på listen herunder. 🎉',
     ].join('\n'))] });
+  const pr = d.type === 'shop' && d.kanaler.priser && await g.channels.fetch(d.kanaler.priser).catch(() => null);
+  if (pr) await sendEllerRet(pr, { embeds: prisEmbeds(g, d, navn) }).catch(e => spor(`priser: ${e.message}`));
   const hj = d.kanaler.hjaelp && await g.channels.fetch(d.kanaler.hjaelp).catch(() => null);
   if (hj) await sendEllerRet(hj, { embeds: [new EmbedBuilder().setColor(0x3b82f6).setAuthor({ name: navn }).setTitle('🤝 Sådan får du hjælp her')
     .setDescription([
